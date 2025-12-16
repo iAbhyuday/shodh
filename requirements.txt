@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+python-dotenv
+pydantic-settings
+chromadb
+langchain
+langchain-community
+langchain-openai
+langchain-google-genai
+langchain-ollama
+arxiv
+requests
+beautifulsoup4
+huggingface_hub
+sqlalchemy

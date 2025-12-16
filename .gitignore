@@ -4,3 +4,8 @@
 *.ptx
 *.cubin
 *.fatbin
+*.db
+*.log
+*.sqlite3
+./.github/
+./chroma_db/

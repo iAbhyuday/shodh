@@ -1,0 +1,28 @@
+Create a hierarchical JSON structure to visualize the key concepts of this research paper as a Mind Map.
+
+Paper Title: {title}
+Abstract: {abstract}
+
+Structure Guidelines:
+- Root Node: Paper Title (Shortened if >10 words)
+- Level 1 Branches: Core Problem, Key Innovation, Methodology, Main Results
+- Level 2 Branches: Specific, actionable details (NOT generic text).
+
+CONSTRAINTS:
+- **MAX 7 WORDS per node**. Keep labels punchy and concise.
+- Use active verbs (e.g., "Uses Transformers" instead of "The model uses Transformers").
+- Ensure all IDs are unique strings.
+
+Return the output as a valid JSON object with a single root node:
+{{
+    "id": "root",
+    "label": "{title}",
+    "children": [
+        {{
+            "id": "node_problem",
+            "label": "Core Problem",
+            "children": [ ... ]
+        }},
+        ...
+    ]
+}}

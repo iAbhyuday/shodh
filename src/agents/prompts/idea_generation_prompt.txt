@@ -1,0 +1,11 @@
+Based on the following research paper abstract and its metrics, propose 3 novel research hypotheses or future work directions.
+Focus on filling gaps, improving performance, or applying the technique to a new domain.
+
+Paper Title: {title}
+Abstract: {abstract}
+Metrics/Key Info: {metrics}
+
+Output format:
+1. Hypothesis 1: [Description]
+2. Hypothesis 2: [Description]
+3. Hypothesis 3: [Description]

@@ -1,0 +1,11 @@
+Extract the following structured information from the research paper abstract/summary provided below:
+1. Core Idea (Short subtitle, max 10 words)
+2. Tags (List of 3-5 relevant keywords/topics)
+3. Approach (List of 3-5 key steps or methodological points)
+4. Key Metrics (accuracy, F1 score, latency, etc.)
+5. Main Contribution
+
+Return the output as a valid JSON object with keys: "core_idea", "tags", "approach", "metrics", "main_contribution".
+
+Paper Title: {title}
+Abstract: {abstract}
