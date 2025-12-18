@@ -23,6 +23,7 @@ type Paper = {
   is_saved: boolean;
   github_url?: string;  // Optional GitHub link
   project_page?: string;  // Optional project page
+  thumbnail?: string;  // Optional thumbnail image URL
 };
 
 export default function Home() {
@@ -211,6 +212,18 @@ export default function Home() {
   const closeModal = () => {
     setViewMode('none');
     setActivePaper(null);
+  };
+
+  // Helper: validate thumbnail URL before attempting to render image
+  const isValidUrl = (s?: string) => {
+    if (!s) return false;
+    try {
+      // eslint-disable-next-line no-new
+      new URL(s);
+      return true;
+    } catch (_) {
+      return false;
+    }
   };
 
   return (
@@ -423,20 +436,37 @@ export default function Home() {
 
                       return (
                         <div key={paper.id} className="bg-neutral-900 rounded-2xl border border-white/5 hover:border-white/20 transition-all duration-300 overflow-hidden shadow-lg group">
-                          <div className="p-6">
-                            {/* Header: Title + Date */}
-                            <div className="mb-4">
-                              <div className="flex justify-between items-start">
-                                <h3 className="text-xl font-bold text-white leading-tight group-hover:text-blue-400 transition-colors">
-                                  <a href={paper.url} target="_blank" rel="noreferrer">{paper.title}</a>
-                                </h3>
-                                {/* Date Badge */}
-                                <span className="flex-shrink-0 ml-3 text-xs font-mono text-gray-500 border border-white/10 px-2 py-1 rounded">
-                                  {new Date(paper.published_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                                </span>
-                              </div>
-                              <p className="text-sm text-gray-500 mt-1">{paper.authors}</p>
+                          {/* Thumbnail */}
+                          {paper.thumbnail && isValidUrl(paper.thumbnail) ? (
+                            <div className="relative w-full h-48 bg-neutral-800 overflow-hidden">
+                              <img
+                                src={paper.thumbnail}
+                                alt={paper.title}
+                                className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300"
+                              />
+                              {/* Date Badge */}
+                              <span className="absolute top-2 right-2 text-xs font-mono text-white bg-black/60 backdrop-blur-sm border border-white/20 px-2 py-1 rounded">
+                                {new Date(paper.published_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </span>
                             </div>
+                          ) : null}
+
+                          <div className="p-6">
+                            {/* Header: Title + Date shown when no valid thumbnail */}
+                            {(!paper.thumbnail || !isValidUrl(paper.thumbnail)) && (
+                              <div className="mb-4">
+                                <div className="flex justify-between items-start">
+                                  <h3 className="text-xl font-bold text-white leading-tight group-hover:text-blue-400 transition-colors">
+                                    <a href={paper.url} target="_blank" rel="noreferrer">{paper.title}</a>
+                                  </h3>
+                                  {/* Date Badge */}
+                                  <span className="flex-shrink-0 ml-3 text-xs font-mono text-gray-500 border border-white/10 px-2 py-1 rounded">
+                                    {new Date(paper.published_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-gray-500 mt-1">{paper.authors}</p>
+                              </div>
+                            )}
 
                             {/* Content: Notes Format */}
                             <div className="mb-6">

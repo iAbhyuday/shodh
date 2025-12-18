@@ -1,0 +1,73 @@
+\section{VQ-VAE}\label{sec:method}
+
+Perhaps the work most related to our approach are VAEs.
+VAEs consist of the following parts: an encoder network which parameterises a posterior distribution $q(z|x)$ of discrete latent random variables $z$ given the input data $x$, a prior distribution $p(z)$, and a decoder with a distribution $p(x|z)$ over input data.
+
+Typically, the posteriors and priors in VAEs are assumed normally distributed with diagonal covariance, which allows for the Gaussian reparametrisation trick to be used \cite{rezende2014stochastic, kingma2013auto}. Extensions include autoregressive prior and posterior models \cite{gregor2013deep}, normalising flows \cite{rezende2015variational, dinh2016density}, and inverse autoregressive posteriors \cite{kingma2016improved}.
+
+In this work we introduce the VQ-VAE where we use discrete latent variables with a new way of training, inspired by vector quantisation (VQ). The posterior and prior distributions are categorical, and the samples drawn from these distributions index an embedding table. These embeddings are then used as input into the decoder network.
+
+\subsection{Discrete Latent variables}
+
+We define a latent embedding space $e \in R^{K \times D}$ where $K$ is the size of the discrete latent space (i.e., a $K$-way categorical), and $D$ is the dimensionality of each latent embedding vector $e_i$. Note that there are $K$ embedding vectors $e_i \in R^D$, $i \in {1, 2, ... , K}$. As shown in Figure~\ref{fig:gradient}, the model takes an input $x$, that is passed through an encoder producing output $z_e(x)$. The discrete latent variables $z$ are then calculated by a nearest neighbour look-up using the shared embedding space $e$ as shown in equation~\ref{eq_assign}. The input to the decoder is the corresponding embedding vector $e_k$ as given in equation~\ref{eq_quantisation}. One can see this forward computation pipeline as a regular autoencoder with a particular non-linearity that maps the latents to $1$-of-K embedding vectors. The complete set of parameters for the model are union of parameters of the encoder, decoder, and the embedding space $e$. For sake of simplicity we use a single random variable $z$ to represent the discrete latent variables in this Section, however for speech, image and videos we actually extract a 1D, 2D and 3D latent feature spaces respectively.
+
+The posterior categorical distribution $q(z|x)$ probabilities are defined as one-hot as follows:
+
+\begin{equation} 
+q(z=k|x)=
+\begin{cases*}
+1 & \text{for } k = \text{argmin}$_j  \|z_e(x) - e_j\|_2$, \\
+0 & \text{otherwise} \label{eq_assign}
+\end{cases*},
+\end{equation} 
+
+where $z_e(x)$ is the output of the encoder network. We view this model as a VAE in which we can bound $\log p(x)$ with the ELBO. Our proposal distribution $q(z=k|x)$ is deterministic, and by defining a simple uniform prior over $z$ we obtain a KL divergence constant and equal to $\log K$.
+
+The representation $z_e(x)$ is passed through the discretisation bottleneck followed by mapping onto the nearest element of embedding $e$ as given in equations~\ref{eq_assign} and~\ref{eq_quantisation}.
+
+\begin{equation}
+z_{q}(x) = e_k, \quad \text{where} \quad k = \text{argmin}_j  \|z_e(x) - e_j\|_2
+\label{eq_quantisation}
+\end{equation}
+
+\begin{figure}
+\centering
+% \includegraphics[width=8cm]{fig1.jpg}
+\includegraphics[width=\textwidth]{figures/Figure1_9.png}
+
+\caption{Left: A figure describing the VQ-VAE. Right: Visualisation of the embedding space. The output of the encoder $z(x)$ is mapped to the nearest point $e_2$. The gradient $\nabla_z L$ (in red) will push the encoder to change its output, which could alter the configuration in the next forward pass.}
+\label{fig:gradient}
+\end{figure}
+
+\subsection{Learning}
+\label{section:learning}
+
+Note that there is no real gradient defined for equation~\ref{eq_quantisation}, however we approximate the gradient similar to the straight-through estimator \cite{bengio2013estimating} and just copy gradients from decoder input $z_q(x)$ to encoder output $z_e(x)$. One could also use the subgradient through the quantisation operation, but this simple estimator worked well for the initial experiments in this paper.
+
+During forward computation the nearest embedding $z_{q}(x)$ (equation \ref{eq_quantisation}) is passed to the decoder, and during the backwards pass the gradient $\nabla_z L$ is passed unaltered to the encoder. Since the output representation of the encoder and the input to the decoder share the same $D$ dimensional space, the gradients contain useful information for how the encoder has to change its output to lower the reconstruction loss.
+
+As seen on Figure \ref{fig:gradient} (right), the gradient can push the encoder's output to be discretised differently in the next forward pass, because the assignment in equation \ref{eq_assign} will be different.
+
+Equation \ref{eq_loss} specifies the overall loss function. It is has three components that are used to train different parts of VQ-VAE. The first term is the reconstruction loss (or the data term) which optimizes the decoder and the encoder (through the estimator explained above). Due to the straight-through gradient estimation of mapping from $z_e(x)$ to $z_q(x)$, the embeddings $e_i$ receive no gradients from the reconstruction loss $\log p(z|z_q(x))$. Therefore, in order to learn the embedding space, we use one of the simplest dictionary learning algorithms, Vector Quantisation (VQ). The VQ objective uses the $l_2$ error to move the embedding vectors $e_i$ towards the encoder outputs $z_e(x)$ as shown in the second term of equation~\ref{eq_loss}. Because this loss term is only used for updating the dictionary, one can alternatively also update the dictionary items as function of moving averages of $z_e(x)$ (not used for the experiments in this work). For more details see Appendix \ref{appendix:ema}.
+
+Finally, since the volume of the embedding space is dimensionless, it can grow arbitrarily if the embeddings $e_i$ do not train as fast as the encoder parameters. To make sure the encoder commits to an embedding and its output does not grow, we add a commitment loss, the third term in equation~\ref{eq_loss}. Thus, the total training objective becomes:
+\begin{equation}
+L = \log p(x|z_q(x)) + \|\text{sg}[z_e(x)] - e\|^2_2 + \beta \|z_e(x) - \text{sg}[e]\|^2_2,
+\label{eq_loss}
+\end{equation}
+
+where sg stands for the stopgradient operator that is defined as identity at forward computation time and has zero partial derivatives, thus effectively constraining its operand to be a non-updated constant. The decoder optimises the first loss term only, the encoder optimises the first and the last loss terms, and the embeddings are optimised by the middle loss term. We found the resulting algorithm to be quite robust to $\beta$, as the results did not vary for values of $\beta$ ranging from $0.1$ to $2.0$. We use $\beta= 0.25$ in all our experiments, although in general this would depend on the scale of reconstruction loss. Since we assume a uniform prior for $z$, the KL term that usually appears in the ELBO is constant w.r.t. the encoder parameters and can thus be ignored for training.
+
+In our experiments we define $N$ discrete latents (e.g., we use a field of 32 x 32 latents for ImageNet, or 8 x 8 x 10 for CIFAR10). The resulting loss $L$ is identical, except that we get an average over $N$ terms for $k$-means and commitment loss -- one for each latent.
+
+ The log-likelihood of the complete model $\log p(x)$ can be evaluated as follows:
+$$
+\log p(x) = \log \sum_k p(x|z_k)p(z_k),
+$$
+
+Because the decoder $p(x|z)$ is trained with $z = z_q(x)$ from MAP-inference, the decoder should not allocate any probability mass to $p(x|z)$ for $z \neq z_q(x)$ once it has fully converged. Thus, we can write $\log p(x) \approx \log p(x|z_q(x))p(z_q(x))$. We empirically evaluate this approximation in section~\ref{sec:exp}. From Jensen's inequality, we also can write $\log p(x) \geq \log p(x|z_q(x))p(z_q(x))$.
+
+\subsection{Prior}
+
+The prior distribution over the discrete latents $p(z)$ is a categorical distribution, and can be made autoregressive by depending on other $z$ in the feature map. Whilst training the VQ-VAE, the prior is kept constant and uniform. After training, we fit an autoregressive distribution over $z$, $p(z)$, so that we can generate $x$ via ancestral sampling. We use a PixelCNN over the discrete latents for images, and a WaveNet for raw audio. Training the prior and the VQ-VAE jointly, which could strengthen our results, is left as future research.
+

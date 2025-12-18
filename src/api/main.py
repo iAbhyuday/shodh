@@ -52,19 +52,52 @@ class PaperActionRequest(BaseModel):
 
 # --- Helper Functions ---
 
-def fetch_daily_papers(date: str = None, limit: int = 50):
+
+def fetch_daily_papers(date: str = None, limit: int = 100):
     # Fetch from huggingface daily papers or arxiv directly if needed
     # For now, using huggingface daily papers API via requests
     today = datetime.date.today()
     url = "https://huggingface.co/api/daily_papers"
     if date:
         url = f"{url}?date={date}"
-        
     try:
         resp = requests.get(url)
         resp.raise_for_status()
         data = resp.json()
         # Data is list of papers. Flatten/Format.
+        papers = []
+        for p in data[:limit]:
+            # HF API returns dict with 'paper' key usually
+            paper_info = p.get('paper', p)
+            papers.append({
+                "id": paper_info['id'],
+                "title": paper_info['title'],
+                "abstract": paper_info.get('ai_summary', 'No summary available.'),
+                "source": "Hugging Face Daily",
+                'thumbnail': p.get('thumbnail', ""),
+                "url": f"https://arxiv.org/abs/{paper_info['id']}",
+                "published_date": paper_info.get('publishedAt', str(today)),
+                "authors": ", ".join(
+                    [a['name'] for a in paper_info.get('authors', [])]),
+                    "metrics": {
+                        "tags": paper_info.get('ai_keywords', []),
+                        "core_idea": paper_info.get('ai_summary', '')
+                    },
+                    "github_url": paper_info.get('githubRepo'),
+                    "project_page": paper_info.get('projectPage')
+                })
+        return papers
+    except Exception as e:
+        print(f"Error fetching daily papers: {e}")
+        return []
+
+
+def search_papers(query: str, limit: int = 50):
+    url = f"https://huggingface.co/api/papers/search?q={query}&limit={limit}"
+    try:
+        resp = requests.get(url)
+        resp.raise_for_status()
+        data = resp.json()
         papers = []
         for p in data[:limit]:
             # HF API returns dict with 'paper' key usually
@@ -77,13 +110,13 @@ def fetch_daily_papers(date: str = None, limit: int = 50):
                 "url": f"https://arxiv.org/abs/{paper_info['id']}",
                 "published_date": paper_info.get('publishedAt', str(today)),
                 "authors": ", ".join([a['name'] for a in paper_info.get('authors', [])]),
-                "metrics": {"tags": paper_info.get('ai_keywords', []), "core_idea": paper_info.get('summary', '')[:100] + "..."},
-                "github_url": paper_info.get('githubRepo'),  # Add GitHub link
-                "project_page": paper_info.get('projectPage')  # Add project page
+                "metrics": {"tags": paper_info.get('ai_keywords', []), "core_idea": paper_info.get('ai_summary', '')},
+                "github_url": paper_info.get('githubRepo'),
+                "project_page": paper_info.get('projectPage')
             })
         return papers
     except Exception as e:
-        print(f"Error fetching daily papers: {e}")
+        print(f"Error searching papers: {e}")
         return []
 
 def background_ingest_paper(arxiv_id: str):
@@ -119,30 +152,35 @@ def background_ingest_paper(arxiv_id: str):
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to Shodh API"}
+    return {"message": "Welcome to Shodh"}
 
 @app.get("/api/feed")
-def get_feed(date: str = None, q: str = None, page: int = 1, limit: int = 20, db: Session = Depends(get_db)):
+def get_feed(
+    date: str = None,
+    q: str = None,
+    page: int = 1,
+    limit: int = 20,
+    db: Session = Depends(get_db)
+):
     """
     Get daily papers feed. 
     Enriches with user state (is_saved, is_favorited) from SQL.
     Supports filtering by date (YYYY-MM-DD) and keyword (q).
     Supports pagination via page parameter (1-indexed).
     """
-    # Fetch all papers (we'll paginate after filtering)
-    papers = fetch_daily_papers(date=date, limit=200)  # Fetch more for better pagination
-    
     # Filter by keyword if provided
+    papers = []
+    query = None
     if q:
         query = q.lower()
-        filtered = []
-        for p in papers:
-            # Search title, abstract, authors, and tags
-            text = (p['title'] + " " + p['abstract'] + " " + p['authors']).lower()
-            tags = [t.lower() for t in p['metrics']['tags']]
-            if query in text or any(query in t for t in tags):
-                filtered.append(p)
-        papers = filtered
+    papers = fetch_daily_papers(date=date, limit=200)
+        # for p in papers:
+        #     # Search title, abstract, authors, and tags
+        #     text = (p['title'] + " " + p['abstract'] + " " + p['authors']).lower()
+        #     tags = [t.lower() for t in p['metrics']['tags']]
+        #     if query in text or any(query in t for t in tags):
+        #         filtered.append(p)
+        # papers = filtered
 
     # Calculate pagination
     total_papers = len(papers)
@@ -151,7 +189,8 @@ def get_feed(date: str = None, q: str = None, page: int = 1, limit: int = 20, db
     paginated_papers = papers[start_idx:end_idx]
 
     # Enrich with SQL state
-    user_papers = db.query(UserPaper).filter(UserPaper.paper_id.in_([p['id'] for p in paginated_papers])).all()
+    user_papers = db.query(UserPaper).filter(
+        UserPaper.paper_id.in_([p['id'] for p in paginated_papers])).all()
     state_map = {up.paper_id: up for up in user_papers}
     
     for p in paginated_papers:
@@ -298,144 +337,3 @@ def visualize_paper(request: IdeaRequest):
         return {"paper_id": request.paper_id, "mindmap": mindmap_data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], # In production, set to specific origin
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Agents
-ingestion_agent = IngestionAgent()
-metrics_agent = MetricsAgent()
-idea_agent = IdeaGenerationAgent()
-vis_agent = VisualizationAgent()
-
-# Models
-class TopicRequest(BaseModel):
-    topics: List[str]
-
-class PaperResponse(BaseModel):
-    id: str
-    title: str
-    abstract: str
-    source: str
-    metrics: Optional[dict] = None
-    url: str
-
-class IdeaRequest(BaseModel):
-    paper_id: str
-
-@app.get("/")
-def read_root():
-    return {"message": "Welcome to Shodh API"}
-
-@app.post("/api/ingest")
-async def trigger_ingestion(request: TopicRequest, background_tasks: BackgroundTasks):
-    """
-    Trigger background ingestion of papers for given topics.
-    """
-    background_tasks.add_task(run_ingestion_pipeline, request.topics)
-    return {"status": "Ingestion started in background", "topics": request.topics}
-
-def run_ingestion_pipeline(topics: List[str]):
-    print(f"Starting ingestion for {topics}")
-    # 1. Fetch
-    papers = ingestion_agent.run(topics)
-    # 2. Extract Metrics
-    enriched_papers = metrics_agent.run(papers)
-    # 3. Store in DB
-    rag_pipeline.ingest_papers(enriched_papers)
-    print("Ingestion complete.")
-
-@app.get("/api/feed")
-def get_feed(limit: int = 10):
-    """
-    Get latest papers from the DB.
-    """
-    # For now, just retrieving all or random. 
-    # In a real app, we might query by date or relevance.
-    # VectorStore `get_all` returns a dict with 'ids', 'documents', 'metadatas'.
-    data = rag_pipeline.vector_store.get_all()
-    
-    # Format for response
-    papers = []
-    ids = data['ids']
-    metadatas = data['metadatas']
-    documents = data['documents']
-    
-    # Simple slicing
-    count = min(len(ids), limit)
-    for i in range(count):
-        papers.append({
-            "id": ids[i],
-            **metadatas[i],
-            "content_snippet": documents[i][:200]
-        })
-    return papers
-
-@app.post("/api/generate_ideas")
-def generate_ideas(request: IdeaRequest):
-    """
-    Generate ideas for a specific paper.
-    """
-    # 1. Retrieve paper details from DB (not directly supported by simple get_all, 
-    # but let's assume we can fetch by ID or re-construct).
-    # Ideally VectorStore should have `get_by_id`.
-    # Quick fix: query by ID or just use what we have.
-    
-    # Actually, let's fetch by ID from Chroma
-    data = rag_pipeline.vector_store.collection.get(ids=[request.paper_id])
-    if not data['ids']:
-        raise HTTPException(status_code=404, detail="Paper not found")
-        
-    # Reconstruct paper object for agent
-    paper = {
-        "title": data['metadatas'][0].get('title'),
-        "abstract": data['documents'][0], # Ingest put full content here
-        "metrics": {} # Metrics embedded in content, ideally should parse back or store in metadata
-    }
-    
-    ideas = idea_agent.generate_ideas(paper)
-    return {"paper_id": request.paper_id, "ideas": ideas}
-
-@app.post("/api/visualize")
-def visualize_paper(request: IdeaRequest):
-    """
-    Generate visualization for a specific paper. Checks DB cache first.
-    Returns JSON structure for React Flow.
-    """
-    data = rag_pipeline.vector_store.collection.get(ids=[request.paper_id])
-    if not data['ids']:
-        raise HTTPException(status_code=404, detail="Paper not found")
-    
-    # Check if already cached in metadata
-    metadata = data['metadatas'][0]
-    # Check if we have cached JSON string (we store as string in metadata because Chroma metadata is flat)
-    if metadata.get("mindmap_json"):
-        import json
-        try:
-             return {"paper_id": request.paper_id, "mindmap": json.loads(metadata.get("mindmap_json"))}
-        except:
-             pass # Re-generate if corrupt
-
-    paper = {
-        "title": metadata.get('title'),
-        "abstract": data['documents'][0]
-    }
-    
-    # Generate dictionary
-    mindmap_data = vis_agent.generate_mindmap(paper)
-    
-    # Update DB with cached code (serialize to string for storage)
-    import json
-    metadata["mindmap_json"] = json.dumps(mindmap_data)
-    
-    rag_pipeline.vector_store.collection.update(
-        ids=[request.paper_id],
-        metadatas=[metadata]
-    )
-    
-    return {"paper_id": request.paper_id, "mindmap": mindmap_data}

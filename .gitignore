@@ -8,4 +8,5 @@
 *.log
 *.sqlite3
 ./.github/
-./chroma_db/
+chroma_db/
+.github/
