@@ -29,12 +29,42 @@ class UserPaper(Base):
     # Cached visualizations
     mindmap_json = Column(Text, nullable=True)  # Mindmap data as JSON string
     
+    # PDF Ingestion tracking
+    pdf_path = Column(String, nullable=True)  # Local path to downloaded PDF
+    ingestion_status = Column(String, nullable=True)  # pending, processing, completed, failed
+    chunk_count = Column(Integer, nullable=True)  # Number of chunks indexed
+    ingested_at = Column(DateTime, nullable=True)  # When ingestion completed
+    
     # User interaction state
     is_favorited = Column(Boolean, default=False)
     is_saved = Column(Boolean, default=False) # Saved means 'ingested' for us
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Conversation(Base):
+    """Stores chat conversations linked to papers."""
+    __tablename__ = "conversations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    paper_id = Column(String, index=True)  # Links to UserPaper.paper_id
+    title = Column(String, nullable=True)  # Auto-generated or user-defined
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Message(Base):
+    """Stores individual messages within a conversation."""
+    __tablename__ = "messages"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, index=True)  # Links to Conversation.id
+    role = Column(String)  # 'user' or 'assistant'
+    content = Column(Text)
+    citations_json = Column(Text, nullable=True)  # JSON array of citation objects
+    mode = Column(String, nullable=True)  # 'agent' or 'contextual'
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 def init_db():
     Base.metadata.create_all(bind=engine)

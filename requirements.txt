@@ -13,3 +13,14 @@ requests
 beautifulsoup4
 huggingface_hub
 sqlalchemy
+
+# PDF Ingestion Pipeline
+docling
+llama-index
+llama-index-embeddings-ollama
+llama-index-vector-stores-chroma
+llama-index-llms-ollama
+
+# CrewAI for Agentic RAG
+crewai
+crewai-tools

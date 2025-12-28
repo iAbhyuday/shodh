@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str | None = None
     GEMINI_API_KEY: str | None = None
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "llama3"
+    OLLAMA_MODEL: str = "qwen2.7vl:7b"
     
     # Vector DB
     VECTOR_DB_PATH: str = "./chroma_db"

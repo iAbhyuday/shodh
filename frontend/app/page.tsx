@@ -1,7 +1,8 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import { Search, BookOpen, ExternalLink, Lightbulb, Network, Heart, Bookmark, RefreshCw, Hash, List, Code, Compass, MessageSquare, Star } from 'lucide-react';
+import { Search, BookOpen, ExternalLink, Lightbulb, Network, Heart, Bookmark, RefreshCw, Hash, List, Code, Compass, MessageSquare, Star, Send, ArrowLeft, Loader2, Quote, Plus } from 'lucide-react';
 import InteractiveMindMap from './components/InteractiveMindMap';
+import ReactMarkdown from 'react-markdown';
 
 // API Base URL
 const API_URL = "http://localhost:8000/api";
@@ -54,6 +55,39 @@ export default function Home() {
   // Scroll tracking for sticky header
   const [scrolled, setScrolled] = useState(false);
 
+  // Ingestion status tracking for saved papers
+  const [ingestionStatus, setIngestionStatus] = useState<Record<string, {
+    status: string;
+    chunk_count: number | null;
+  }>>({});
+
+  // Chat/Assistant state
+  const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
+  const [chatMessages, setChatMessages] = useState<{
+    role: 'user' | 'assistant',
+    content: string,
+    citations?: {
+      content: string,
+      section: string,
+      score: number,
+      section_title?: string,
+      page_number?: number
+    }[]
+  }[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [useAgentMode, setUseAgentMode] = useState(false);  // Toggle for Agentic vs Contextual RAG
+
+  // Conversation persistence state
+  const [conversations, setConversations] = useState<{
+    id: number;
+    paper_id: string;
+    title: string;
+    created_at: string;
+    message_count: number;
+  }[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
+
   useEffect(() => {
     const handleScroll = () => {
       setScrolled(window.scrollY > 100);
@@ -65,6 +99,131 @@ export default function Home() {
   useEffect(() => {
     fetchFeed();
   }, [date, currentPage]); // Refetch when date or page changes
+
+  // Poll ingestion status for saved papers
+  useEffect(() => {
+    if (activeView !== 'bookmarks') return;
+
+    const savedPapers = feed.filter(p => p.is_saved);
+    if (savedPapers.length === 0) return;
+
+    const pollStatus = async () => {
+      for (const paper of savedPapers) {
+        try {
+          const res = await fetch(`${API_URL}/ingestion-status/${paper.id}`);
+          if (res.ok) {
+            const data = await res.json();
+            setIngestionStatus(prev => ({
+              ...prev,
+              [paper.id]: { status: data.ingestion_status || 'unknown', chunk_count: data.chunk_count }
+            }));
+          }
+        } catch (e) {
+          console.error('Failed to poll status', e);
+        }
+      }
+    };
+
+    pollStatus();
+    const interval = setInterval(pollStatus, 3000); // Poll every 3 seconds
+    return () => clearInterval(interval);
+  }, [activeView, feed]);
+
+  // Fetch conversations for a paper
+  const fetchConversations = async (paperId: string) => {
+    try {
+      const res = await fetch(`${API_URL}/conversations/${paperId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setConversations(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch conversations:', e);
+    }
+  };
+
+  // Load messages for a conversation
+  const loadConversation = async (convId: number) => {
+    try {
+      const res = await fetch(`${API_URL}/conversations/${convId}/messages`);
+      if (res.ok) {
+        const messages = await res.json();
+        setChatMessages(messages.map((m: any) => ({
+          role: m.role,
+          content: m.content,
+          citations: m.citations
+        })));
+        setActiveConversationId(convId);
+      }
+    } catch (e) {
+      console.error('Failed to load conversation:', e);
+    }
+  };
+
+  // Create new chat
+  const startNewChat = () => {
+    setChatMessages([]);
+    setActiveConversationId(null);
+  };
+
+  // Fetch conversations when paper is selected
+  useEffect(() => {
+    if (selectedPaper) {
+      fetchConversations(selectedPaper.id);
+    }
+  }, [selectedPaper]);
+
+  // Send chat message
+  const sendChatMessage = async () => {
+    if (!chatInput.trim() || !selectedPaper || chatLoading) return;
+
+    const userMessage = chatInput.trim();
+    setChatInput('');
+    setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setChatLoading(true);
+
+    try {
+      const res = await fetch(`${API_URL}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paper_id: selectedPaper.id,
+          message: userMessage,
+          conversation_id: activeConversationId,
+          history: chatMessages,
+          use_agent: useAgentMode
+        })
+      });
+
+      if (!res.ok) throw new Error('Chat failed');
+      const data = await res.json();
+
+      // Update conversation ID if new conversation was created
+      if (data.conversation_id && !activeConversationId) {
+        setActiveConversationId(data.conversation_id);
+        fetchConversations(selectedPaper.id);  // Refresh sidebar
+      }
+
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: data.response,
+        citations: data.citations
+      }]);
+    } catch (e) {
+      console.error('Chat error:', e);
+      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  // Start discussion with a paper
+  const startDiscussion = (paper: Paper) => {
+    setSelectedPaper(paper);
+    setChatMessages([]);
+    setChatInput('');
+    setActiveView('assistant');
+  };
 
   const fetchFeed = async () => {
     setLoading(true);
@@ -375,22 +534,209 @@ export default function Home() {
             </div>
           ) : (
             <>
-              {/* Assistant View */}
+              {/* Assistant View - Paper Q&A */}
               {activeView === 'assistant' ? (
-                <div className="max-w-2xl mx-auto text-center py-20">
-                  <MessageSquare className="w-16 h-16 mx-auto mb-4 text-gray-600" />
-                  <h3 className="text-2xl font-bold text-white mb-2">Research Assistant</h3>
-                  <p className="text-gray-400 mb-6">AI-powered research companion (Coming Soon)</p>
-                  <div className="bg-neutral-900 border border-white/10 rounded-xl p-6 text-left">
-                    <p className="text-sm text-gray-500">
-                      Future features:
-                    </p>
-                    <ul className="mt-3 space-y-2 text-sm text-gray-400">
-                      <li>• Ask questions about your saved papers</li>
-                      <li>• Get summaries and insights</li>
-                      <li>• Generate literature review drafts</li>
-                      <li>• Discover connections between papers</li>
-                    </ul>
+                <div className="flex gap-4 h-[calc(100vh-12rem)]">
+                  {/* Conversation Sidebar */}
+                  {selectedPaper && (
+                    <div className="w-64 flex-shrink-0 flex flex-col bg-neutral-900 rounded-xl border border-white/10 p-4">
+                      <button
+                        onClick={startNewChat}
+                        className="w-full flex items-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition mb-4"
+                      >
+                        <Plus className="w-5 h-5" />
+                        New Chat
+                      </button>
+
+                      <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">
+                        Chat History
+                      </div>
+
+                      <div className="flex-1 overflow-y-auto space-y-2">
+                        {conversations.length === 0 ? (
+                          <p className="text-sm text-gray-500 text-center py-4">No conversations yet</p>
+                        ) : (
+                          conversations.map(conv => (
+                            <button
+                              key={conv.id}
+                              onClick={() => loadConversation(conv.id)}
+                              className={`w-full text-left p-3 rounded-lg transition ${activeConversationId === conv.id
+                                ? 'bg-white/10 border border-white/20'
+                                : 'hover:bg-white/5 border border-transparent'
+                                }`}
+                            >
+                              <div className="text-sm font-medium text-white line-clamp-2">
+                                {conv.title}
+                              </div>
+                              <div className="text-xs text-gray-500 mt-1">
+                                {conv.message_count} messages
+                              </div>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Main Chat Area */}
+                  <div className="flex-1 flex flex-col">
+                    {selectedPaper ? (
+                      <>
+                        {/* Paper Header */}
+                        <div className="flex items-center gap-4 mb-4 p-4 bg-neutral-900 rounded-xl border border-white/10">
+                          <button
+                            onClick={() => {
+                              setActiveView('bookmarks');
+                              setSelectedPaper(null);
+                              setConversations([]);
+                              setChatMessages([]);
+                              setActiveConversationId(null);
+                            }}
+                            className="p-2 rounded-lg hover:bg-neutral-800 transition"
+                          >
+                            <ArrowLeft className="w-5 h-5 text-gray-400" />
+                          </button>
+                          <div className="flex-1">
+                            <h3 className="text-lg font-semibold text-white line-clamp-1">{selectedPaper.title}</h3>
+                            <p className="text-sm text-gray-500">{selectedPaper.authors}</p>
+                          </div>
+                        </div>
+
+                        {/* Chat Messages */}
+                        <div className="flex-1 overflow-y-auto space-y-4 mb-4 p-4">
+                          {chatMessages.length === 0 && (
+                            <div className="text-center text-gray-500 py-10">
+                              <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                              <p>Ask a question about this paper</p>
+                            </div>
+                          )}
+                          {chatMessages.map((msg, idx) => (
+                            <div
+                              key={idx}
+                              className="flex gap-4 p-6 border-b border-white/5 hover:bg-white/5 transition-colors"
+                            >
+                              <div className="flex-shrink-0 mt-1">
+                                {msg.role === 'user' ? (
+                                  <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
+                                    <span className="text-xs font-bold text-white">U</span>
+                                  </div>
+                                ) : (
+                                  <div className="w-8 h-8 rounded-full bg-orange-600 flex items-center justify-center">
+                                    <span className="text-xs font-bold text-white">AI</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex-1 min-w-0">
+                                <div className="mb-1">
+                                  <span className="font-semibold text-sm text-gray-200">
+                                    {msg.role === 'user' ? 'You' : 'Shodh Assistant'}
+                                  </span>
+                                </div>
+
+                                {msg.role === 'user' ? (
+                                  <p className="text-gray-300 whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                                ) : (
+                                  <div className="prose prose-invert prose-p:leading-relaxed prose-pre:bg-black/50 prose-pre:border prose-pre:border-white/10 max-w-none text-gray-300">
+                                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+
+                                    {/* Citations */}
+                                    {msg.citations && msg.citations.length > 0 && (
+                                      <div className="mt-6 pt-4 border-t border-white/10">
+                                        <p className="text-xs font-medium text-gray-400 mb-2 flex items-center gap-2">
+                                          <Quote className="w-3 h-3" />
+                                          References
+                                        </p>
+                                        <div className="flex gap-2 overflow-x-auto pb-2">
+                                          {msg.citations.slice(0, 3).map((cit, i) => (
+                                            <div key={i} className="min-w-[220px] max-w-[220px] p-3 bg-black/20 rounded border border-white/5 text-xs flex flex-col gap-1">
+                                              <div className="flex justify-between items-start">
+                                                <span className="font-medium text-blue-400 line-clamp-1 uppercase text-[10px] tracking-wider">
+                                                  {cit.section}
+                                                </span>
+                                                {cit.page_number && (
+                                                  <span className="text-gray-500 text-[10px]">
+                                                    Page {cit.page_number}
+                                                  </span>
+                                                )}
+                                              </div>
+
+                                              {cit.section_title && (
+                                                <div className="font-semibold text-gray-300 line-clamp-1">
+                                                  {cit.section_title}
+                                                </div>
+                                              )}
+
+                                              <div className="text-gray-500 line-clamp-3 italic mt-1 bg-white/5 p-1 rounded">
+                                                "{cit.content}"
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                          {chatLoading && (
+                            <div className="flex justify-start">
+                              <div className="bg-neutral-800 p-4 rounded-2xl">
+                                <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Chat Input */}
+                        <div className="flex flex-col gap-2 p-4 bg-neutral-900 rounded-xl border border-white/10">
+                          {/* Agent Mode Toggle */}
+                          <div className="flex items-center gap-2 text-xs text-gray-400">
+                            <button
+                              onClick={() => setUseAgentMode(!useAgentMode)}
+                              className={`px-3 py-1.5 rounded-full border transition-all ${useAgentMode
+                                ? 'bg-orange-600/20 border-orange-500 text-orange-400'
+                                : 'bg-neutral-800 border-white/10 text-gray-500'
+                                }`}
+                            >
+                              {useAgentMode ? '🤖 Agent Mode' : '⚡ Fast Mode'}
+                            </button>
+                            <span>{useAgentMode ? 'Multi-step reasoning (slower)' : 'Quick contextual answers'}</span>
+                          </div>
+
+                          <div className="flex gap-3">
+                            <input
+                              type="text"
+                              value={chatInput}
+                              onChange={(e) => setChatInput(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && sendChatMessage()}
+                              placeholder="Ask about this paper..."
+                              className="flex-1 bg-neutral-800 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <button
+                              onClick={sendChatMessage}
+                              disabled={chatLoading || !chatInput.trim()}
+                              className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                            >
+                              <Send className="w-5 h-5" />
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-center py-20">
+                        <MessageSquare className="w-16 h-16 mx-auto mb-4 text-gray-600" />
+                        <h3 className="text-2xl font-bold text-white mb-2">Research Assistant</h3>
+                        <p className="text-gray-400 mb-6">Select a paper from Bookmarks to start a discussion</p>
+                        <button
+                          onClick={() => setActiveView('bookmarks')}
+                          className="px-6 py-3 bg-white text-black font-semibold rounded-lg hover:bg-gray-200 transition"
+                        >
+                          Go to Bookmarks
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -481,6 +827,66 @@ export default function Home() {
                                     #{tag.replace(/\s+/g, '')}
                                   </span>
                                 ))}
+                              </div>
+                            )}
+
+                            {/* Ingestion Status - Only on Bookmarks */}
+                            {activeView === 'bookmarks' && paper.is_saved && (
+                              <div className="mb-4 p-3 bg-neutral-800/50 rounded-lg border border-white/5">
+                                {(() => {
+                                  const status = ingestionStatus[paper.id];
+                                  if (!status || status.status === 'pending') {
+                                    return (
+                                      <div className="flex items-center gap-2 text-yellow-500">
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        <span className="text-sm">Queued for indexing...</span>
+                                      </div>
+                                    );
+                                  } else if (status.status === 'downloading') {
+                                    return (
+                                      <div className="flex items-center gap-2 text-blue-400">
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        <span className="text-sm">Downloading PDF...</span>
+                                      </div>
+                                    );
+                                  } else if (status.status === 'parsing') {
+                                    return (
+                                      <div className="flex items-center gap-2 text-purple-400">
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        <span className="text-sm">Parsing document...</span>
+                                      </div>
+                                    );
+                                  } else if (status.status === 'indexing') {
+                                    return (
+                                      <div className="flex items-center gap-2 text-cyan-400">
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        <span className="text-sm">Indexing {status.chunk_count || ''} chunks...</span>
+                                      </div>
+                                    );
+                                  } else if (status.status === 'completed') {
+                                    return (
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2 text-green-400">
+                                          <span className="text-sm">✓ Ready ({status.chunk_count} chunks)</span>
+                                        </div>
+                                        <button
+                                          onClick={() => startDiscussion(paper)}
+                                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-500 transition"
+                                        >
+                                          <MessageSquare className="w-4 h-4" />
+                                          Discuss
+                                        </button>
+                                      </div>
+                                    );
+                                  } else if (status.status === 'failed') {
+                                    return (
+                                      <div className="flex items-center gap-2 text-red-400">
+                                        <span className="text-sm">❌ Ingestion failed</span>
+                                      </div>
+                                    );
+                                  }
+                                  return null;
+                                })()}
                               </div>
                             )}
 
