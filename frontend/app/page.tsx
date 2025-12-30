@@ -1,8 +1,13 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import { Search, BookOpen, ExternalLink, Lightbulb, Network, Heart, Bookmark, RefreshCw, Hash, List, Code, Compass, MessageSquare, Star, Send, ArrowLeft, Loader2, Quote, Plus } from 'lucide-react';
+import { Search, BookOpen, ExternalLink, Lightbulb, Network, Heart, Bookmark, RefreshCw, Hash, List, Code, Compass, MessageSquare, Star, Send, ArrowLeft, Loader2, Quote, Plus, ChevronLeft, ChevronRight, FolderArchive, Folders, Settings, Trash2, X } from 'lucide-react';
 import InteractiveMindMap from './components/InteractiveMindMap';
 import ReactMarkdown from 'react-markdown';
+import DiscoverView from './components/DiscoverView';
+import LibraryView from './components/LibraryView';
+import ProjectView from './components/ProjectView';
+import ReaderPanel from './components/ReaderPanel';
+import AssistantView from './components/AssistantView';
 
 // API Base URL
 const API_URL = "http://localhost:8000/api";
@@ -25,10 +30,22 @@ type Paper = {
   github_url?: string;  // Optional GitHub link
   project_page?: string;  // Optional project page
   thumbnail?: string;  // Optional thumbnail image URL
+  project_ids?: number[]; // IDs of projects this paper belongs to
+  ingestion_status?: string;
+};
+
+type Project = {
+  id: number;
+  name: string;
+  description: string | null;
+  research_dimensions: string | null;
+  created_at: string;
+  paper_count: number;
 };
 
 export default function Home() {
   /* State */
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [feed, setFeed] = useState<Paper[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -38,7 +55,7 @@ export default function Home() {
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
-  const [date, setDate] = useState(""); // YYYY-MM-DD
+
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -59,7 +76,13 @@ export default function Home() {
   const [ingestionStatus, setIngestionStatus] = useState<Record<string, {
     status: string;
     chunk_count: number | null;
+    title?: string;
   }>>({});
+  const ingestionStatusRef = React.useRef(ingestionStatus);
+
+  useEffect(() => {
+    ingestionStatusRef.current = ingestionStatus;
+  }, [ingestionStatus]);
 
   // Chat/Assistant state
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
@@ -88,6 +111,171 @@ export default function Home() {
   }[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
 
+  // Quick Study Panel state
+  const [studyPanelPaper, setStudyPanelPaper] = useState<Paper | null>(null);
+  const [studyInsights, setStudyInsights] = useState<string>("");
+  const [isLoadingInsights, setIsLoadingInsights] = useState(false);
+  const [activeProjectMenu, setActiveProjectMenu] = useState<string | null>(null); // paper.id
+
+  const fetchQuickInsights = async (paperId: string) => {
+    setIsLoadingInsights(true);
+    setStudyInsights("");
+    try {
+      const res = await fetch(`${API_URL}/insights/${paperId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setStudyInsights(data.insights);
+      }
+    } catch (e) {
+      console.error("Failed to fetch insights", e);
+    } finally {
+      setIsLoadingInsights(false);
+    }
+  };
+
+  // Projects state
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [projectView, setProjectView] = useState<'papers' | 'synthesis'>('papers');
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectDimensions, setNewProjectDimensions] = useState("");
+
+  const fetchProjects = async () => {
+    try {
+      const res = await fetch(`${API_URL}/projects`);
+      if (res.ok) {
+        const data = await res.json();
+        setProjects(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch projects", e);
+    }
+  };
+
+  const createProject = async () => {
+    if (!newProjectName.trim()) return;
+    try {
+      const res = await fetch(`${API_URL}/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newProjectName,
+          research_dimensions: newProjectDimensions
+        })
+      });
+      if (res.ok) {
+        setNewProjectName("");
+        setNewProjectDimensions("");
+        setIsCreatingProject(false);
+        fetchProjects();
+      }
+    } catch (e) {
+      console.error("Failed to create project", e);
+    }
+  };
+
+  const deleteProject = async (projectId: number) => {
+    try {
+      const res = await fetch(`${API_URL}/projects/${projectId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        fetchProjects();
+        // If we were viewing this project, close it
+        if (selectedProject?.id === projectId) {
+          setSelectedProject(null);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to delete project", e);
+    }
+  };
+
+  const addPaperToProject = async (projectId: number, paperId: string, paperTitle?: string) => {
+    // Check if paper is already in project (if we have feed data)
+    const paper = feed.find(p => p.id === paperId) || activePaper;
+    const isAlreadyInProject = paper?.project_ids?.includes(projectId);
+
+    try {
+      if (isAlreadyInProject) {
+        // Remove from project
+        const res = await fetch(`${API_URL}/projects/${projectId}/paper/${paperId}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          // Optimistically update feed
+          setFeed(prev => prev.map(p => p.id === paperId ? {
+            ...p,
+            project_ids: p.project_ids?.filter(id => id !== projectId)
+          } : p));
+          // If current view is project view, refreshing might remove it from view
+          if (activeView === 'bookmarks' && selectedProject?.id === projectId) {
+            fetchProjectPapers(projectId);
+          }
+          fetchProjects();
+        }
+      } else {
+        // Add to project
+        const res = await fetch(`${API_URL}/projects/${projectId}/add-paper`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            paper_id: paperId,
+            title: paperTitle || paper?.title
+          })
+        });
+        if (res.ok) {
+          fetchProjects(); // Update counts
+
+          // Optimistically update
+          setFeed(prev => prev.map(p => p.id === paperId ? {
+            ...p,
+            project_ids: [...(p.project_ids || []), projectId]
+          } : p));
+
+          // Trigger immediate polling only if not already completed/ingested
+          // We don't know for sure here without response data, but assuming backend logic handles it.
+          // We just set monitor for visibility.
+          const title = paperTitle || feed.find(p => p.id === paperId)?.title;
+
+          // Only show monitor if we think it needs ingestion (backend decides, but we can't see backend decision easily without parsing response message)
+          // But user requirement 2 says "ingestion should not happen again".
+          // Monitor should probably only show if receiving specific "triggered" signal or we check status.
+          // For now, we'll poll status from backend to be sure.
+
+          const statusRes = await fetch(`${API_URL}/ingestion-status/${paperId}`);
+          if (statusRes.ok) {
+            const statusData = await statusRes.json();
+            if (statusData.ingestion_status !== 'completed') {
+              setIngestionStatus(prev => ({
+                ...prev,
+                [paperId]: { status: statusData.ingestion_status || 'pending', chunk_count: 0, title }
+              }));
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Failed to update project paper", e);
+    }
+  };
+
+  const fetchProjectPapers = async (projectId: number) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/projects/${projectId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setFeed(data.papers);
+      }
+    } catch (e) {
+      console.error("Failed to fetch project papers", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     const handleScroll = () => {
       setScrolled(window.scrollY > 100);
@@ -97,26 +285,83 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    fetchFeed();
-  }, [date, currentPage]); // Refetch when date or page changes
+    fetchProjects();
+  }, []);
 
-  // Poll ingestion status for saved papers
   useEffect(() => {
-    if (activeView !== 'bookmarks') return;
+    if (activeView === 'bookmarks') {
+      if (selectedProject) {
+        fetchProjectPapers(selectedProject.id);
+      } else {
+        fetchBookmarks();
+      }
+    } else if (activeView === 'favourites') {
+      fetchFavorites();
+    } else if (activeView === 'explore') {
+      fetchFeed();
+    }
+  }, [currentPage, activeView, selectedProject]);
 
-    const savedPapers = feed.filter(p => p.is_saved);
-    if (savedPapers.length === 0) return;
+  // Custom polling effect for projects
+  useEffect(() => {
+    if (activeView === 'bookmarks' && !selectedProject) {
+      const interval = setInterval(fetchProjects, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [activeView, selectedProject]);
 
+  // Sync ingestion status from feed
+  useEffect(() => {
+    setIngestionStatus(prev => {
+      const next = { ...prev };
+      let changed = false;
+      feed.forEach(p => {
+        const status = p.ingestion_status;
+        if (status && ['pending', 'processing', 'downloading', 'indexing'].includes(status)) {
+          if (!next[p.id] || next[p.id].status !== status) {
+            next[p.id] = { status, chunk_count: null, title: p.title };
+            changed = true;
+          }
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [feed]);
+
+  // Poll ingestion status for papers that are being processed
+  useEffect(() => {
     const pollStatus = async () => {
-      for (const paper of savedPapers) {
+      const currentStatus = ingestionStatusRef.current;
+      const activeIngestions = Object.entries(currentStatus)
+        .filter(([_, info]) => ['pending', 'downloading', 'parsing', 'indexing', 'processing'].includes(info.status))
+        .map(([id]) => id);
+
+      // Determine which papers to poll
+      const papersToPoll = activeIngestions;
+
+      if (papersToPoll.length === 0) return;
+
+      for (const paperId of papersToPoll) {
         try {
-          const res = await fetch(`${API_URL}/ingestion-status/${paper.id}`);
+          const res = await fetch(`${API_URL}/ingestion-status/${paperId}?t=${Date.now()}`);
           if (res.ok) {
             const data = await res.json();
-            setIngestionStatus(prev => ({
-              ...prev,
-              [paper.id]: { status: data.ingestion_status || 'unknown', chunk_count: data.chunk_count }
-            }));
+            setIngestionStatus(prev => {
+              // Only update if status or count changed
+              if (prev[paperId]?.status === data.ingestion_status && prev[paperId]?.chunk_count === data.chunk_count) {
+                return prev;
+              }
+              return {
+                ...prev,
+                [paperId]: {
+                  ...prev[paperId],
+                  status: data.ingestion_status || 'unknown',
+                  chunk_count: data.chunk_count,
+                  // Preserve title if we have it
+                  title: prev[paperId]?.title || feed.find(p => p.id === paperId)?.title
+                }
+              };
+            });
           }
         } catch (e) {
           console.error('Failed to poll status', e);
@@ -124,15 +369,37 @@ export default function Home() {
       }
     };
 
-    pollStatus();
-    const interval = setInterval(pollStatus, 3000); // Poll every 3 seconds
+    const interval = setInterval(pollStatus, 3000);
     return () => clearInterval(interval);
-  }, [activeView, feed]);
+  }, [activeView, feed]); // Stable dependencies
 
-  // Fetch conversations for a paper
-  const fetchConversations = async (paperId: string) => {
+  // Handle clicking outside to close project menu
+  useEffect(() => {
+    if (!activeProjectMenu) return;
+
+    const handleGlobalClick = () => {
+      setActiveProjectMenu(null);
+    };
+
+    // Delay adding listener to prevent immediate closure on toggle click
+    const timeout = setTimeout(() => {
+      window.addEventListener('click', handleGlobalClick);
+    }, 10);
+
+    return () => {
+      clearTimeout(timeout);
+      window.removeEventListener('click', handleGlobalClick);
+    };
+  }, [activeProjectMenu]);
+
+  // Fetch conversations for a paper or project
+  const fetchConversations = async (paperId?: string, projectId?: number) => {
     try {
-      const res = await fetch(`${API_URL}/conversations/${paperId}`);
+      const params = new URLSearchParams();
+      if (paperId) params.append('paper_id', paperId);
+      if (projectId) params.append('project_id', projectId.toString());
+
+      const res = await fetch(`${API_URL}/conversations?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setConversations(data);
@@ -166,52 +433,129 @@ export default function Home() {
     setActiveConversationId(null);
   };
 
-  // Fetch conversations when paper is selected
+  // Auto-reload conversation when returning to synthesis view
   useEffect(() => {
-    if (selectedPaper) {
-      fetchConversations(selectedPaper.id);
+    if (activeView === 'bookmarks' && selectedProject && projectView === 'synthesis') {
+      // If we have an active conversation but no messages, reload them
+      if (activeConversationId && chatMessages.length === 0 && !chatLoading) {
+        loadConversation(activeConversationId);
+      }
     }
-  }, [selectedPaper]);
+  }, [activeView, selectedProject, projectView, activeConversationId, chatMessages.length, chatLoading]);
 
   // Send chat message
   const sendChatMessage = async () => {
-    if (!chatInput.trim() || !selectedPaper || chatLoading) return;
+    // Context identification
+    const isProjectSynthesis = activeView === 'bookmarks' && selectedProject && projectView === 'synthesis';
+    const paperContext = selectedPaper;
+    const projectContext = selectedProject;
+
+    if (!chatInput.trim() || chatLoading) return;
+    if (!paperContext && !isProjectSynthesis) return;
 
     const userMessage = chatInput.trim();
     setChatInput('');
     setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setChatLoading(true);
 
+    // Placeholder for assistant message
+    setChatMessages(prev => [...prev, {
+      role: 'assistant',
+      content: '',
+      citations: []
+    }]);
+
     try {
-      const res = await fetch(`${API_URL}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          paper_id: selectedPaper.id,
-          message: userMessage,
-          conversation_id: activeConversationId,
-          history: chatMessages,
-          use_agent: useAgentMode
-        })
-      });
+      const payload: any = {
+        message: userMessage,
+        conversation_id: activeConversationId,
+        history: chatMessages.slice(-10), // Keep history lean
+        use_agent: useAgentMode
+      };
 
-      if (!res.ok) throw new Error('Chat failed');
-      const data = await res.json();
-
-      // Update conversation ID if new conversation was created
-      if (data.conversation_id && !activeConversationId) {
-        setActiveConversationId(data.conversation_id);
-        fetchConversations(selectedPaper.id);  // Refresh sidebar
+      if (isProjectSynthesis && projectContext) {
+        payload.project_id = projectContext.id;
+      } else if (paperContext) {
+        payload.paper_id = paperContext.id;
       }
 
-      setChatMessages(prev => [...prev, {
-        role: 'assistant',
-        content: data.response,
-        citations: data.citations
-      }]);
+      const endpoint = isProjectSynthesis ? '/project-chat' : '/chat';
+      const response = await fetch(`${API_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok || !response.body) throw new Error('Chat failed');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let isFirstChunk = true;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const text = decoder.decode(value, { stream: true });
+        buffer += text;
+
+        if (isFirstChunk && buffer.includes('\n')) {
+          const splitIndex = buffer.indexOf('\n');
+          const metaLine = buffer.slice(0, splitIndex);
+          const remaining = buffer.slice(splitIndex + 1);
+
+          try {
+            const data = JSON.parse(metaLine);
+            if (data.conversation_id && !activeConversationId) {
+              setActiveConversationId(data.conversation_id);
+              // Refresh Sidebar based on current context
+              if (isProjectSynthesis && projectContext) {
+                fetchConversations(undefined, projectContext.id);
+              } else if (paperContext) {
+                fetchConversations(paperContext.id);
+              }
+            }
+            if (data.citations) {
+              setChatMessages(prev => {
+                const newArr = [...prev];
+                const lastIndex = newArr.length - 1;
+                if (lastIndex >= 0 && newArr[lastIndex].role === 'assistant') {
+                  newArr[lastIndex] = { ...newArr[lastIndex], citations: data.citations };
+                }
+                return newArr;
+              });
+            }
+          } catch (e) {
+            console.error("Error parsing metadata:", e);
+          }
+          buffer = remaining;
+          isFirstChunk = false;
+        }
+
+        if (!isFirstChunk && buffer.length > 0) {
+          const contentChunk = buffer;
+          buffer = '';
+          setChatMessages(prev => {
+            const newArr = [...prev];
+            const lastIndex = newArr.length - 1;
+            if (lastIndex >= 0 && newArr[lastIndex].role === 'assistant') {
+              newArr[lastIndex] = { ...newArr[lastIndex], content: newArr[lastIndex].content + contentChunk };
+            }
+            return newArr;
+          });
+        }
+      }
     } catch (e) {
       console.error('Chat error:', e);
-      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);
+      setChatMessages(prev => {
+        const newArr = [...prev];
+        const lastMsg = newArr[newArr.length - 1];
+        if (lastMsg.role === 'assistant') {
+          lastMsg.content += '\n\n[Sorry, I encountered an error. Please try again.]';
+        }
+        return newArr;
+      });
     } finally {
       setChatLoading(false);
     }
@@ -231,8 +575,8 @@ export default function Home() {
     try {
       // Build Query
       const params = new URLSearchParams({ limit: "20", page: currentPage.toString() });
-      if (date) params.append("date", date);
       if (searchQuery) params.append("q", searchQuery);
+
 
       const res = await fetch(`${API_URL}/feed?${params.toString()}`);
       if (!res.ok) throw new Error("API Error");
@@ -245,6 +589,46 @@ export default function Home() {
     } catch (e) {
       console.error("Failed to fetch feed", e);
       setError(true);
+    }
+    setLoading(false);
+  };
+
+  const fetchBookmarks = async () => {
+    setLoading(true);
+    setFeed([]); // Clear existing feed to prevent showing stale "Explore" data
+    setError(false);
+    try {
+      const res = await fetch(`${API_URL}/library/saved`);
+      if (!res.ok) throw new Error("API Error");
+      const data = await res.json();
+
+      // Bookmarks endpoint returns array directly
+      setFeed(data || []);
+      setTotalPages(1); // No pagination for bookmarks yet
+      setTotalPapers(data.length || 0);
+    } catch (e) {
+      console.error("Failed to fetch bookmarks", e);
+      setError(true);
+      setFeed([]); // Ensure empty on error
+    }
+    setLoading(false);
+  };
+
+  const fetchFavorites = async () => {
+    setLoading(true);
+    setFeed([]);
+    setError(false);
+    try {
+      const res = await fetch(`${API_URL}/library/favorites`);
+      if (!res.ok) throw new Error("API Error");
+      const data = await res.json();
+      setFeed(data || []);
+      setTotalPages(1);
+      setTotalPapers(data.length || 0);
+    } catch (e) {
+      console.error("Failed to fetch favorites", e);
+      setError(true);
+      setFeed([]);
     }
     setLoading(false);
   };
@@ -385,9 +769,81 @@ export default function Home() {
     }
   };
 
+  const IngestionMonitor = () => {
+    const activeTasks = Object.entries(ingestionStatus)
+      .filter(([_, info]) => ['pending', 'downloading', 'parsing', 'indexing', 'processing'].includes(info.status))
+      .map(([id, info]) => ({ id, ...info }));
+
+    if (activeTasks.length === 0) return null;
+
+    return (
+      <div className="fixed bottom-6 right-6 z-[120] flex flex-col gap-3 max-w-sm">
+        {(() => {
+          const SHOW_LIMIT = 3;
+          // If we have more than limit, show limit-1 and a summary card
+          const shouldStack = activeTasks.length > SHOW_LIMIT;
+          const tasksToShow = shouldStack ? activeTasks.slice(0, SHOW_LIMIT - 1) : activeTasks;
+          const remaining = activeTasks.length - tasksToShow.length;
+
+          return (
+            <>
+              {tasksToShow.map((task) => (
+                <div key={task.id} className="bg-neutral-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl animate-in slide-in-from-right-10 duration-500">
+                  <div className="flex items-center gap-4">
+                    <div className="relative">
+                      <RefreshCw className="w-5 h-5 text-indigo-400 animate-spin" />
+                      <div className="absolute inset-0 bg-indigo-400/20 blur-lg animate-pulse" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-white truncate mb-1">
+                        {task.title || 'Unknown Paper'}
+                      </p>
+                      <div className="flex items-center justify-between text-[10px] uppercase tracking-widest font-bold">
+                        <span className="text-indigo-400 animate-pulse">{task.status}</span>
+                        {task.chunk_count ? (
+                          <span className="text-gray-500">{task.chunk_count} chunks</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3 h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-indigo-600 to-indigo-400 transition-all duration-1000 ease-in-out"
+                      style={{
+                        width: task.status === 'completed' ? '100%' :
+                          task.status === 'indexing' ? '85%' :
+                            task.status === 'parsing' ? '60%' :
+                              task.status === 'downloading' ? '30%' : '10%'
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+              {shouldStack && (
+                <div className="bg-neutral-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl animate-in slide-in-from-right-10 duration-500 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-indigo-500/20 p-2 rounded-full">
+                      <RefreshCw className="w-4 h-4 text-indigo-400 animate-spin" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-white">
+                        Processing {remaining} more papers...
+                      </p>
+                      <p className="text-[10px] text-gray-500">Background ingestion active</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-black text-gray-100 font-sans">
-      <header className="bg-black/80 backdrop-blur-md border-b border-white/10 sticky top-0 z-20">
+      <header className="bg-black/80 backdrop-blur-md border-b border-white/10 sticky top-0 z-[100]">
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center space-x-2">
             <BookOpen className="text-white w-6 h-6" />
@@ -402,687 +858,318 @@ export default function Home() {
       </header>
 
       {/* Sidebar Navigation */}
-      <aside className="fixed left-0 top-16 h-screen w-64 bg-neutral-900 border-r border-white/10 p-4 z-10">
-        <nav className="space-y-2">
+      {/* Sidebar Navigation */}
+      <aside
+        className={`fixed left-0 top-16 h-[calc(100vh-4rem)] bg-neutral-900 border-r border-white/10 flex flex-col transition-all duration-300 ease-in-out z-[90] ${sidebarOpen ? 'w-64' : 'w-16'
+          }`}
+      >
+        <nav className="flex-1 space-y-2 p-2">
           <button
             onClick={() => {
               setActiveView('explore');
+              setSelectedProject(null);
               setCurrentPage(1);
             }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeView === 'explore'
-              ? 'bg-white text-black font-semibold'
+            title="Research Discovery"
+            className={`w-full flex items-center py-3 rounded-lg transition-all ${sidebarOpen ? 'gap-3 px-3' : 'justify-center px-2'} ${activeView === 'explore'
+              ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-indigo-500/20'
               : 'text-gray-400 hover:bg-neutral-800 hover:text-white'
               }`}
           >
-            <Compass className="w-5 h-5" />
-            <span>Explore</span>
+            <Compass className="w-5 h-5 flex-shrink-0" />
+            <span className={`transition-opacity duration-200 ${sidebarOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
+              Research Discovery
+            </span>
           </button>
 
           <button
             onClick={() => {
               setActiveView('favourites');
+              setSelectedProject(null);
               setCurrentPage(1);
             }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeView === 'favourites'
-              ? 'bg-white text-black font-semibold'
+            title="Personal Collection"
+            className={`w-full flex items-center py-3 rounded-lg transition-all ${sidebarOpen ? 'gap-3 px-3' : 'justify-center px-2'} ${activeView === 'favourites'
+              ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-indigo-500/20'
               : 'text-gray-400 hover:bg-neutral-800 hover:text-white'
               }`}
           >
-            <Star className="w-5 h-5" />
-            <span>Favourites</span>
+            <Heart className="w-5 h-5 flex-shrink-0" />
+            <span className={`transition-opacity duration-200 ${sidebarOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
+              Personal Collection
+            </span>
           </button>
 
           <button
             onClick={() => {
               setActiveView('bookmarks');
+              setSelectedProject(null);
               setCurrentPage(1);
             }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeView === 'bookmarks'
-              ? 'bg-white text-black font-semibold'
+            title="Synthesis Hub"
+            className={`w-full flex items-center py-3 rounded-lg transition-all ${sidebarOpen ? 'gap-3 px-3' : 'justify-center px-2'} ${activeView === 'bookmarks' && !selectedProject
+              ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-indigo-500/20'
               : 'text-gray-400 hover:bg-neutral-800 hover:text-white'
               }`}
           >
-            <Bookmark className="w-5 h-5" />
-            <span>Bookmarks</span>
+            <FolderArchive className="w-5 h-5 flex-shrink-0" />
+            <span className={`transition-opacity duration-200 ${sidebarOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
+              Synthesis Hub
+            </span>
           </button>
 
-          <button
-            onClick={() => setActiveView('assistant')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeView === 'assistant'
-              ? 'bg-white text-black font-semibold'
-              : 'text-gray-400 hover:bg-neutral-800 hover:text-white'
-              }`}
-          >
-            <MessageSquare className="w-5 h-5" />
-            <span>Assistant</span>
-          </button>
+          {/* Recent Projects Section */}
+          {sidebarOpen && projects.length > 0 && (
+            <div className="mt-4 px-3 py-2">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 px-1">
+                Recent Projects
+              </p>
+              <div className="space-y-1">
+                {projects.slice(0, 5).map(proj => (
+                  <button
+                    key={proj.id}
+                    onClick={() => {
+                      setSelectedProject(proj);
+                      setSidebarOpen(false);
+                      setActiveView('bookmarks');
+                    }}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors ${selectedProject?.id === proj.id
+                      ? 'bg-indigo-600/20 text-indigo-400 font-medium'
+                      : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
+                      }`}
+                  >
+                    <div className={`w-1.5 h-1.5 rounded-full ${selectedProject?.id === proj.id ? 'bg-indigo-500' : 'bg-neutral-600'}`} />
+                    <span className="truncate">{proj.name}</span>
+                  </button>
+                ))}
+                {projects.length > 5 && (
+                  <button
+                    onClick={() => {
+                      setActiveView('bookmarks');
+                      setSelectedProject(null);
+                    }}
+                    className="w-full text-left px-2 py-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors mt-1"
+                  >
+                    See all projects ({projects.length})
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </nav>
+
+        {/* Sidebar Toggle */}
+        <div className="p-2 border-t border-white/10">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-gray-400 hover:bg-neutral-800 hover:text-white transition-all ${!sidebarOpen ? 'justify-center' : ''}`}
+          >
+            {sidebarOpen ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+            <span className={`transition-opacity duration-200 ${sidebarOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
+            </span>
+          </button>
+        </div>
       </aside>
 
-      <main className="ml-64 px-4 py-8">
-        {/* Filters - Only on Explore */}
-        {activeView === 'explore' && (
-          <section className="mb-8 text-center sticky top-16 z-10 bg-black/50 backdrop-blur-xl p-4 rounded-2xl border border-white/5 shadow-2xl transition-all duration-300">
-            <form onSubmit={handleSearch} className="max-w-xl mx-auto flex flex-col sm:flex-row gap-3">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                <input
-                  type="text"
-                  placeholder="Search keywords..."
-                  className="w-full bg-neutral-900 border border-white/10 rounded-lg py-2.5 pl-10 pr-4 text-sm text-white focus:ring-2 focus:ring-white/20 outline-none transition"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-              <div className="relative">
-                <input
-                  type="date"
-                  className="bg-neutral-900 border border-white/10 rounded-lg py-2.5 px-4 text-sm text-gray-300 focus:ring-2 focus:ring-white/20 outline-none transition cursor-pointer"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  max={new Date().toISOString().split('T')[0]} // Max today
-                />
-              </div>
-              <button type="submit" className="bg-white text-black font-semibold py-2.5 px-6 rounded-lg hover:bg-gray-200 transition text-sm">
-                Filter
-              </button>
-            </form>
-          </section>
+      <main
+        className={`transition-all duration-300 ease-in-out ${sidebarOpen ? 'ml-64' : 'ml-16'
+          } ${activeView === 'assistant' ? 'p-0' : 'px-4 py-8'}`}
+      >
+        {activeView === 'explore' || activeView === 'favourites' ? (
+          <DiscoverView
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            showSearch={activeView === 'explore'}
+            onSearch={handleSearch}
+
+            loading={loading}
+            error={error}
+            feed={feed.filter((p) => (activeView === 'favourites' ? p.is_favorited : true))}
+            onStudy={(p) => setStudyPanelPaper(p)}
+            onVisualize={visualize}
+            onAddPaperToProject={(projId, paperId) => {
+              const p = feed.find(p => p.id === paperId);
+              addPaperToProject(projId, paperId, p?.title);
+            }}
+            onToggleFavorite={toggleFavorite}
+            projects={projects}
+            activeProjectMenu={activeProjectMenu}
+            setActiveProjectMenu={setActiveProjectMenu}
+            ingestionStatus={ingestionStatus}
+            totalPages={totalPages}
+            currentPage={currentPage}
+            goToPage={(p) => {
+              setCurrentPage(p);
+              fetchFeed();
+            }}
+            totalPapers={totalPapers}
+            onRetry={fetchFeed}
+            title={activeView === 'favourites' ? "Personal Collection" : "Research Discovery"}
+            subtitle={activeView === 'favourites' ? "A curated space for your most valued research papers." : "Explore the global frontier of research publications."}
+          />
+        ) : (
+          <>
+            {activeView === 'assistant' ? (
+              <AssistantView
+                selectedPaper={selectedPaper}
+                conversations={conversations}
+                activeConversationId={activeConversationId}
+                chatMessages={chatMessages}
+                chatInput={chatInput}
+                chatLoading={chatLoading}
+                useAgentMode={useAgentMode}
+                onStartNewChat={startNewChat}
+                onLoadConversation={loadConversation}
+                onBackToLibrary={() => {
+                  setActiveView('bookmarks');
+                  setSelectedPaper(null);
+                  setConversations([]);
+                  setChatMessages([]);
+                  setActiveConversationId(null);
+                }}
+                onSetChatInput={setChatInput}
+                onSendChatMessage={sendChatMessage}
+                onToggleAgentMode={() => setUseAgentMode(!useAgentMode)}
+              />
+            ) : activeView === 'bookmarks' && !selectedProject ? (
+              <LibraryView
+                projects={projects}
+                isCreatingProject={isCreatingProject}
+                setIsCreatingProject={setIsCreatingProject}
+                newProjectName={newProjectName}
+                setNewProjectName={setNewProjectName}
+                newProjectDimensions={newProjectDimensions}
+                setNewProjectDimensions={setNewProjectDimensions}
+                onCreateProject={createProject}
+                onSelectProject={(p) => {
+                  setSelectedProject(p);
+                  if (p) setSidebarOpen(false);
+                }}
+                onDeleteProject={deleteProject}
+                onFetchBookmarks={fetchBookmarks}
+              />
+            ) : (
+              <ProjectView
+                project={selectedProject!}
+                onClose={() => setSelectedProject(null)}
+                projectView={projectView}
+                setProjectView={setProjectView}
+                feed={feed}
+                onStudy={(p) => {
+                  setStudyPanelPaper(p);
+                  fetchQuickInsights(p.id);
+                }}
+                onVisualize={visualize}
+                onFetchConversations={fetchConversations}
+                conversations={conversations}
+                activeConversationId={activeConversationId}
+                onLoadConversation={loadConversation}
+                chatMessages={chatMessages}
+                chatInput={chatInput}
+                setChatInput={setChatInput}
+                onSendChatMessage={sendChatMessage}
+                chatLoading={chatLoading}
+                onStartNewChat={startNewChat}
+                activeProjectMenu={activeProjectMenu}
+                setActiveProjectMenu={setActiveProjectMenu}
+                ingestionStatus={ingestionStatus}
+                onAddPaperToProject={addPaperToProject}
+                useAgentMode={useAgentMode}
+                onToggleAgentMode={() => setUseAgentMode(!useAgentMode)}
+              />
+            )}
+          </>
         )}
 
-        {/* Feed Section */}
-        <section>
-
-
-          {loading && feed.length === 0 ? (
-            <div className="max-w-2xl mx-auto flex flex-col gap-8">
-              {/* Skeleton Loading Cards */}
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="bg-neutral-900 rounded-2xl border border-white/5 p-8 animate-pulse">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="flex-1 space-y-3">
-                      <div className="h-6 bg-neutral-800 rounded w-3/4"></div>
-                      <div className="h-4 bg-neutral-800 rounded w-1/2"></div>
-                    </div>
-                    <div className="h-6 w-20 bg-neutral-800 rounded ml-4"></div>
+        {/* Modal Overlay */}
+        {
+          viewMode !== 'none' && activePaper && (
+            <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+              <div className="bg-neutral-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+                {/* Modal Header */}
+                <div className="p-6 border-b border-white/10 flex justify-between items-center bg-black/40">
+                  <div className="flex-1 pr-4">
+                    <h3 className="text-xl font-bold text-white truncate">{activePaper.title}</h3>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {viewMode === 'ideas' ? 'Research Hypotheses & New Directions' : 'Interactive Knowledge Graph'}
+                    </p>
                   </div>
-                  <div className="space-y-2 mb-4">
-                    <div className="h-3 bg-neutral-800 rounded w-full"></div>
-                    <div className="h-3 bg-neutral-800 rounded w-full"></div>
-                    <div className="h-3 bg-neutral-800 rounded w-4/5"></div>
-                  </div>
-                  <div className="flex gap-2 mb-4">
-                    <div className="h-6 w-16 bg-neutral-800 rounded"></div>
-                    <div className="h-6 w-16 bg-neutral-800 rounded"></div>
-                    <div className="h-6 w-16 bg-neutral-800 rounded"></div>
-                  </div>
-                  <div className="flex gap-2">
-                    <div className="h-10 w-10 bg-neutral-800 rounded-full"></div>
-                    <div className="h-10 w-10 bg-neutral-800 rounded-full"></div>
-                    <div className="h-10 w-10 bg-neutral-800 rounded-full"></div>
-                  </div>
+                  <button onClick={closeModal} className="text-gray-400 hover:text-white transition">
+                    ✕
+                  </button>
                 </div>
-              ))}
-            </div>
-          ) : error ? (
-            <div className="text-center py-20 text-red-400 bg-red-900/10 rounded-xl border border-red-900/20">
-              <p className="text-lg font-semibold">Unable to connect to Shodh Server.</p>
-              <p className="text-sm mt-2 text-gray-500">Please ensure the backend is running.</p>
-              <button onClick={fetchFeed} className="mt-6 px-6 py-2 bg-neutral-800 text-white rounded-full hover:bg-neutral-700 transition border border-white/10">
-                Retry Connection
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* Assistant View - Paper Q&A */}
-              {activeView === 'assistant' ? (
-                <div className="flex gap-4 h-[calc(100vh-12rem)]">
-                  {/* Conversation Sidebar */}
-                  {selectedPaper && (
-                    <div className="w-64 flex-shrink-0 flex flex-col bg-neutral-900 rounded-xl border border-white/10 p-4">
-                      <button
-                        onClick={startNewChat}
-                        className="w-full flex items-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition mb-4"
-                      >
-                        <Plus className="w-5 h-5" />
-                        New Chat
-                      </button>
 
-                      <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">
-                        Chat History
-                      </div>
-
-                      <div className="flex-1 overflow-y-auto space-y-2">
-                        {conversations.length === 0 ? (
-                          <p className="text-sm text-gray-500 text-center py-4">No conversations yet</p>
-                        ) : (
-                          conversations.map(conv => (
-                            <button
-                              key={conv.id}
-                              onClick={() => loadConversation(conv.id)}
-                              className={`w-full text-left p-3 rounded-lg transition ${activeConversationId === conv.id
-                                ? 'bg-white/10 border border-white/20'
-                                : 'hover:bg-white/5 border border-transparent'
-                                }`}
-                            >
-                              <div className="text-sm font-medium text-white line-clamp-2">
-                                {conv.title}
-                              </div>
-                              <div className="text-xs text-gray-500 mt-1">
-                                {conv.message_count} messages
-                              </div>
-                            </button>
-                          ))
-                        )}
-                      </div>
+                {/* Modal Body */}
+                <div className="p-0 overflow-hidden flex-1 relative min-h-[500px]">
+                  {generating ? (
+                    <div className="h-full w-full flex flex-col items-center justify-center bg-zinc-900 z-10 min-h-[500px]">
+                      <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mb-6"></div>
+                      <p className="text-white font-medium text-lg animate-pulse">
+                        {viewMode === 'vis' ? 'Building mindmap...' : 'Forging research ideas...'}
+                      </p>
                     </div>
-                  )}
-
-                  {/* Main Chat Area */}
-                  <div className="flex-1 flex flex-col">
-                    {selectedPaper ? (
-                      <>
-                        {/* Paper Header */}
-                        <div className="flex items-center gap-4 mb-4 p-4 bg-neutral-900 rounded-xl border border-white/10">
-                          <button
-                            onClick={() => {
-                              setActiveView('bookmarks');
-                              setSelectedPaper(null);
-                              setConversations([]);
-                              setChatMessages([]);
-                              setActiveConversationId(null);
-                            }}
-                            className="p-2 rounded-lg hover:bg-neutral-800 transition"
-                          >
-                            <ArrowLeft className="w-5 h-5 text-gray-400" />
-                          </button>
-                          <div className="flex-1">
-                            <h3 className="text-lg font-semibold text-white line-clamp-1">{selectedPaper.title}</h3>
-                            <p className="text-sm text-gray-500">{selectedPaper.authors}</p>
+                  ) : (
+                    <div className="h-full overflow-y-auto p-8 custom-scrollbar">
+                      {viewMode === 'ideas' && (
+                        <div className="space-y-6">
+                          <h4 className="text-lg font-semibold text-white flex items-center mb-6">
+                            Hypotheses & Future Directions
+                          </h4>
+                          <div className="grid gap-6">
+                            {ideas.map((idea, idx) => (
+                              <div key={idx} className="bg-black p-6 rounded-xl border border-white/10 relative">
+                                <div className="absolute top-0 left-0 w-1 h-full bg-white rounded-l-xl"></div>
+                                <p className="text-gray-300 leading-relaxed pl-2">{idea}</p>
+                              </div>
+                            ))}
                           </div>
                         </div>
+                      )}
 
-                        {/* Chat Messages */}
-                        <div className="flex-1 overflow-y-auto space-y-4 mb-4 p-4">
-                          {chatMessages.length === 0 && (
-                            <div className="text-center text-gray-500 py-10">
-                              <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                              <p>Ask a question about this paper</p>
+                      {viewMode === 'vis' && (
+                        <div className="h-full flex flex-col min-h-[500px]">
+                          {mindMapData ? (
+                            <InteractiveMindMap data={mindMapData} />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center h-full text-red-400">
+                              <p>Failed to load visualization.</p>
+                              <p className="text-xs text-gray-500 mt-2">Try re-generating or check backend logs.</p>
+                              <p className="text-xs text-gray-600 mt-2">Note: To visualize properly, ensure the paper is Saved.</p>
                             </div>
                           )}
-                          {chatMessages.map((msg, idx) => (
-                            <div
-                              key={idx}
-                              className="flex gap-4 p-6 border-b border-white/5 hover:bg-white/5 transition-colors"
-                            >
-                              <div className="flex-shrink-0 mt-1">
-                                {msg.role === 'user' ? (
-                                  <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
-                                    <span className="text-xs font-bold text-white">U</span>
-                                  </div>
-                                ) : (
-                                  <div className="w-8 h-8 rounded-full bg-orange-600 flex items-center justify-center">
-                                    <span className="text-xs font-bold text-white">AI</span>
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="flex-1 min-w-0">
-                                <div className="mb-1">
-                                  <span className="font-semibold text-sm text-gray-200">
-                                    {msg.role === 'user' ? 'You' : 'Shodh Assistant'}
-                                  </span>
-                                </div>
-
-                                {msg.role === 'user' ? (
-                                  <p className="text-gray-300 whitespace-pre-wrap leading-relaxed">{msg.content}</p>
-                                ) : (
-                                  <div className="prose prose-invert prose-p:leading-relaxed prose-pre:bg-black/50 prose-pre:border prose-pre:border-white/10 max-w-none text-gray-300">
-                                    <ReactMarkdown>{msg.content}</ReactMarkdown>
-
-                                    {/* Citations */}
-                                    {msg.citations && msg.citations.length > 0 && (
-                                      <div className="mt-6 pt-4 border-t border-white/10">
-                                        <p className="text-xs font-medium text-gray-400 mb-2 flex items-center gap-2">
-                                          <Quote className="w-3 h-3" />
-                                          References
-                                        </p>
-                                        <div className="flex gap-2 overflow-x-auto pb-2">
-                                          {msg.citations.slice(0, 3).map((cit, i) => (
-                                            <div key={i} className="min-w-[220px] max-w-[220px] p-3 bg-black/20 rounded border border-white/5 text-xs flex flex-col gap-1">
-                                              <div className="flex justify-between items-start">
-                                                <span className="font-medium text-blue-400 line-clamp-1 uppercase text-[10px] tracking-wider">
-                                                  {cit.section}
-                                                </span>
-                                                {cit.page_number && (
-                                                  <span className="text-gray-500 text-[10px]">
-                                                    Page {cit.page_number}
-                                                  </span>
-                                                )}
-                                              </div>
-
-                                              {cit.section_title && (
-                                                <div className="font-semibold text-gray-300 line-clamp-1">
-                                                  {cit.section_title}
-                                                </div>
-                                              )}
-
-                                              <div className="text-gray-500 line-clamp-3 italic mt-1 bg-white/5 p-1 rounded">
-                                                "{cit.content}"
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                          {chatLoading && (
-                            <div className="flex justify-start">
-                              <div className="bg-neutral-800 p-4 rounded-2xl">
-                                <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Chat Input */}
-                        <div className="flex flex-col gap-2 p-4 bg-neutral-900 rounded-xl border border-white/10">
-                          {/* Agent Mode Toggle */}
-                          <div className="flex items-center gap-2 text-xs text-gray-400">
-                            <button
-                              onClick={() => setUseAgentMode(!useAgentMode)}
-                              className={`px-3 py-1.5 rounded-full border transition-all ${useAgentMode
-                                ? 'bg-orange-600/20 border-orange-500 text-orange-400'
-                                : 'bg-neutral-800 border-white/10 text-gray-500'
-                                }`}
-                            >
-                              {useAgentMode ? '🤖 Agent Mode' : '⚡ Fast Mode'}
-                            </button>
-                            <span>{useAgentMode ? 'Multi-step reasoning (slower)' : 'Quick contextual answers'}</span>
-                          </div>
-
-                          <div className="flex gap-3">
-                            <input
-                              type="text"
-                              value={chatInput}
-                              onChange={(e) => setChatInput(e.target.value)}
-                              onKeyDown={(e) => e.key === 'Enter' && sendChatMessage()}
-                              placeholder="Ask about this paper..."
-                              className="flex-1 bg-neutral-800 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                            <button
-                              onClick={sendChatMessage}
-                              disabled={chatLoading || !chatInput.trim()}
-                              className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                            >
-                              <Send className="w-5 h-5" />
-                            </button>
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="text-center py-20">
-                        <MessageSquare className="w-16 h-16 mx-auto mb-4 text-gray-600" />
-                        <h3 className="text-2xl font-bold text-white mb-2">Research Assistant</h3>
-                        <p className="text-gray-400 mb-6">Select a paper from Bookmarks to start a discussion</p>
-                        <button
-                          onClick={() => setActiveView('bookmarks')}
-                          className="px-6 py-3 bg-white text-black font-semibold rounded-lg hover:bg-gray-200 transition"
-                        >
-                          Go to Bookmarks
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="max-w-2xl mx-auto flex flex-col gap-8">
-                  {/* Filter feed based on active view */}
-                  {feed
-                    .filter(paper => {
-                      if (activeView === 'favourites') return paper.is_favorited;
-                      if (activeView === 'bookmarks') return paper.is_saved;
-                      return true; // 'explore' shows all
-                    })
-                    .map((paper) => {
-                      const metrics = paper.metrics || {};
-                      const tags = Array.isArray(metrics.tags) ? metrics.tags : [];
-                      // Core idea is nice, but we'll focus on the summary/abstract as "Content"
-                      const content = paper.abstract;
-
-                      // Content Formatter: "Notes Style" -> Split sentences and bullet them
-                      const NoteContent = ({ text }: { text: string }) => {
-                        const [expanded, setExpanded] = useState(false);
-                        // Split by sentences roughly
-                        const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-                        const visibleSentences = expanded ? sentences : sentences.slice(0, 3);
-
-                        return (
-                          <div className="text-gray-300 text-base leading-relaxed space-y-2">
-                            <ul className="list-disc pl-4 space-y-1 marker:text-gray-600">
-                              {visibleSentences.map((s, i) => (
-                                <li key={i}>{s.trim()}</li>
-                              ))}
-                            </ul>
-                            {sentences.length > 3 && (
-                              <button
-                                onClick={() => setExpanded(!expanded)}
-                                className="text-sm text-blue-400 hover:text-blue-300 mt-2 font-medium"
-                              >
-                                {expanded ? "See Less" : "See More"}
-                              </button>
-                            )}
-                          </div>
-                        );
-                      };
-
-                      return (
-                        <div key={paper.id} className="bg-neutral-900 rounded-2xl border border-white/5 hover:border-white/20 transition-all duration-300 overflow-hidden shadow-lg group">
-                          {/* Thumbnail */}
-                          {paper.thumbnail && isValidUrl(paper.thumbnail) ? (
-                            <div className="relative w-full h-48 bg-neutral-800 overflow-hidden">
-                              <img
-                                src={paper.thumbnail}
-                                alt={paper.title}
-                                className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300"
-                              />
-                              {/* Date Badge */}
-                              <span className="absolute top-2 right-2 text-xs font-mono text-white bg-black/60 backdrop-blur-sm border border-white/20 px-2 py-1 rounded">
-                                {new Date(paper.published_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                              </span>
-                            </div>
-                          ) : null}
-
-                          <div className="p-6">
-                            {/* Header: Title + Date shown when no valid thumbnail */}
-                            {(!paper.thumbnail || !isValidUrl(paper.thumbnail)) && (
-                              <div className="mb-4">
-                                <div className="flex justify-between items-start">
-                                  <h3 className="text-xl font-bold text-white leading-tight group-hover:text-blue-400 transition-colors">
-                                    <a href={paper.url} target="_blank" rel="noreferrer">{paper.title}</a>
-                                  </h3>
-                                  {/* Date Badge */}
-                                  <span className="flex-shrink-0 ml-3 text-xs font-mono text-gray-500 border border-white/10 px-2 py-1 rounded">
-                                    {new Date(paper.published_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                                  </span>
-                                </div>
-                                <p className="text-sm text-gray-500 mt-1">{paper.authors}</p>
-                              </div>
-                            )}
-
-                            {/* Content: Notes Format */}
-                            <div className="mb-6">
-                              <NoteContent text={content} />
-                            </div>
-
-                            {/* Hashtags (Bottom) */}
-                            {tags.length > 0 && (
-                              <div className="flex flex-wrap gap-2 mb-4 pt-4 border-t border-white/5">
-                                {tags.slice(0, 5).map((tag: string, idx: number) => (
-                                  <span key={idx} className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer">
-                                    #{tag.replace(/\s+/g, '')}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-
-                            {/* Ingestion Status - Only on Bookmarks */}
-                            {activeView === 'bookmarks' && paper.is_saved && (
-                              <div className="mb-4 p-3 bg-neutral-800/50 rounded-lg border border-white/5">
-                                {(() => {
-                                  const status = ingestionStatus[paper.id];
-                                  if (!status || status.status === 'pending') {
-                                    return (
-                                      <div className="flex items-center gap-2 text-yellow-500">
-                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                        <span className="text-sm">Queued for indexing...</span>
-                                      </div>
-                                    );
-                                  } else if (status.status === 'downloading') {
-                                    return (
-                                      <div className="flex items-center gap-2 text-blue-400">
-                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                        <span className="text-sm">Downloading PDF...</span>
-                                      </div>
-                                    );
-                                  } else if (status.status === 'parsing') {
-                                    return (
-                                      <div className="flex items-center gap-2 text-purple-400">
-                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                        <span className="text-sm">Parsing document...</span>
-                                      </div>
-                                    );
-                                  } else if (status.status === 'indexing') {
-                                    return (
-                                      <div className="flex items-center gap-2 text-cyan-400">
-                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                        <span className="text-sm">Indexing {status.chunk_count || ''} chunks...</span>
-                                      </div>
-                                    );
-                                  } else if (status.status === 'completed') {
-                                    return (
-                                      <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2 text-green-400">
-                                          <span className="text-sm">✓ Ready ({status.chunk_count} chunks)</span>
-                                        </div>
-                                        <button
-                                          onClick={() => startDiscussion(paper)}
-                                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-500 transition"
-                                        >
-                                          <MessageSquare className="w-4 h-4" />
-                                          Discuss
-                                        </button>
-                                      </div>
-                                    );
-                                  } else if (status.status === 'failed') {
-                                    return (
-                                      <div className="flex items-center gap-2 text-red-400">
-                                        <span className="text-sm">❌ Ingestion failed</span>
-                                      </div>
-                                    );
-                                  }
-                                  return null;
-                                })()}
-                              </div>
-                            )}
-
-                            {/* Actions */}
-                            <div className="flex items-center justify-between mt-2">
-                              <div className="flex gap-2">
-                                <a
-                                  href={paper.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  title="Read Paper"
-                                  className="p-2.5 rounded-full bg-neutral-800 text-gray-400 hover:bg-white hover:text-black transition-all duration-200"
-                                >
-                                  <ExternalLink className="w-5 h-5" />
-                                </a>
-
-                                <button
-                                  onClick={() => generateIdeas(paper)}
-                                  title="Generate Research Ideas"
-                                  className="p-2.5 rounded-full bg-neutral-800 text-gray-400 hover:bg-blue-500 hover:text-white transition-all duration-200"
-                                >
-                                  <Lightbulb className="w-5 h-5" />
-                                </button>
-
-                                <button
-                                  onClick={() => visualize(paper)}
-                                  title="Visualize Mindmap"
-                                  className="p-2.5 rounded-full bg-neutral-800 text-gray-400 hover:bg-purple-500 hover:text-white transition-all duration-200"
-                                >
-                                  <Network className="w-5 h-5" />
-                                </button>
-
-                                {/* GitHub/Code Link Button */}
-                                {(paper.github_url || paper.project_page) && (
-                                  <a
-                                    href={paper.github_url || paper.project_page}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    title={paper.github_url ? "View Code on GitHub" : "View Project Page"}
-                                    className="p-2.5 rounded-full bg-neutral-800 text-gray-400 hover:bg-green-500 hover:text-white transition-all duration-200"
-                                  >
-                                    <Code className="w-5 h-5" />
-                                  </a>
-                                )}
-                              </div>
-
-                              <div className="flex gap-2">
-                                <button
-                                  onClick={() => toggleFavorite(paper)}
-                                  title={paper.is_favorited ? "Remove from Favorites" : "Add to Favorites"}
-                                  className={`p-2.5 rounded-full transition-all duration-200 ${paper.is_favorited
-                                    ? 'bg-red-500/20 text-red-500 hover:bg-red-500 hover:text-white'
-                                    : 'bg-neutral-800 text-gray-400 hover:bg-red-500 hover:text-white'}`}
-                                >
-                                  <Heart className={`w-5 h-5 ${paper.is_favorited ? 'fill-current' : ''}`} />
-                                </button>
-
-                                <button
-                                  onClick={() => toggleSaved(paper)}
-                                  title={paper.is_saved ? "Unsave" : "Save to Personal Library"}
-                                  className={`p-2.5 rounded-full transition-all duration-200 ${paper.is_saved
-                                    ? 'bg-blue-500/20 text-blue-500 hover:bg-blue-500 hover:text-white'
-                                    : 'bg-neutral-800 text-gray-400 hover:bg-blue-500 hover:text-white'}`}
-                                >
-                                  <Bookmark className={`w-5 h-5 ${paper.is_saved ? 'fill-current' : ''}`} />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Pagination Controls - Only on Explore */}
-          {!loading && !error && activeView === 'explore' && totalPages > 1 && (
-            <div className="max-w-2xl mx-auto mt-12 flex items-center justify-center gap-3">
-              <button
-                onClick={() => goToPage(currentPage - 1)}
-                disabled={currentPage === 1}
-                className="px-4 py-2 rounded-lg bg-neutral-800 text-white hover:bg-neutral-700 disabled:opacity-30 disabled:cursor-not-allowed transition border border-white/10"
-              >
-                Previous
-              </button>
-
-              <div className="flex gap-2">
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  // Show first page, last page, and pages around current
-                  let pageNum;
-                  if (totalPages <= 5) {
-                    pageNum = i + 1;
-                  } else if (currentPage <= 3) {
-                    pageNum = i + 1;
-                  } else if (currentPage >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i;
-                  } else {
-                    pageNum = currentPage - 2 + i;
-                  }
-
-                  return (
-                    <button
-                      key={i}
-                      onClick={() => goToPage(pageNum)}
-                      className={`px-4 py-2 rounded-lg transition border ${currentPage === pageNum
-                        ? 'bg-white text-black border-white'
-                        : 'bg-neutral-800 text-gray-400 hover:bg-neutral-700 border-white/10'
-                        }`}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <button
-                onClick={() => goToPage(currentPage + 1)}
-                disabled={currentPage === totalPages}
-                className="px-4 py-2 rounded-lg bg-neutral-800 text-white hover:bg-neutral-700 disabled:opacity-30 disabled:cursor-not-allowed transition border border-white/10"
-              >
-                Next
-              </button>
-
-              <span className="ml-4 text-sm text-gray-500">
-                Page {currentPage} of {totalPages} ({totalPapers} papers)
-              </span>
-            </div>
-          )}
-        </section>
-      </main>
-
-      {/* Modal Overlay */}
-      {viewMode !== 'none' && activePaper && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-neutral-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
-            {/* Modal Header */}
-            <div className="p-6 border-b border-white/10 flex justify-between items-center bg-black/40">
-              <div className="flex-1 pr-4">
-                <h3 className="text-xl font-bold text-white truncate">{activePaper.title}</h3>
-                <p className="text-sm text-gray-500 mt-1">
-                  {viewMode === 'ideas' ? 'Research Hypotheses & New Directions' : 'Interactive Knowledge Graph'}
-                </p>
-              </div>
-              <button onClick={closeModal} className="text-gray-400 hover:text-white transition">
-                ✕
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-0 overflow-hidden flex-1 relative min-h-[500px]">
-              {generating ? (
-                <div className="h-full w-full flex flex-col items-center justify-center bg-zinc-900 z-10 min-h-[500px]">
-                  <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mb-6"></div>
-                  <p className="text-white font-medium text-lg animate-pulse">
-                    {viewMode === 'vis' ? 'Building mindmap...' : 'Forging research ideas...'}
-                  </p>
-                </div>
-              ) : (
-                <div className="h-full overflow-y-auto p-8 custom-scrollbar">
-                  {viewMode === 'ideas' && (
-                    <div className="space-y-6">
-                      <h4 className="text-lg font-semibold text-white flex items-center mb-6">
-                        Hypotheses & Future Directions
-                      </h4>
-                      <div className="grid gap-6">
-                        {ideas.map((idea, idx) => (
-                          <div key={idx} className="bg-black p-6 rounded-xl border border-white/10 relative">
-                            <div className="absolute top-0 left-0 w-1 h-full bg-white rounded-l-xl"></div>
-                            <p className="text-gray-300 leading-relaxed pl-2">{idea}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {viewMode === 'vis' && (
-                    <div className="h-full flex flex-col min-h-[500px]">
-                      {mindMapData ? (
-                        <InteractiveMindMap data={mindMapData} />
-                      ) : (
-                        <div className="flex flex-col items-center justify-center h-full text-red-400">
-                          <p>Failed to load visualization.</p>
-                          <p className="text-xs text-gray-500 mt-2">Try re-generating or check backend logs.</p>
-                          <p className="text-xs text-gray-600 mt-2">Note: To visualize properly, ensure the paper is Saved.</p>
                         </div>
                       )}
                     </div>
                   )}
                 </div>
-              )}
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          )
+        }
+        {/* Reader Mode Side Drawer */}
+        <ReaderPanel
+          paper={studyPanelPaper}
+          onClose={() => setStudyPanelPaper(null)}
+          insights={studyInsights}
+          isLoading={isLoadingInsights}
+          ingestionStatus={ingestionStatus}
+          onOpenAssistant={(p) => {
+            setSelectedPaper(p);
+            setActiveView('assistant');
+            setStudyPanelPaper(null);
+          }}
+          isProjectView={!!selectedProject}
+          projects={projects}
+          activeProjectMenu={activeProjectMenu}
+          setActiveProjectMenu={setActiveProjectMenu}
+          onAddPaperToProject={addPaperToProject}
+          onCreateProject={() => {
+            setActiveView('bookmarks');
+            setIsCreatingProject(true);
+          }}
+        />
+      </main>
+      <IngestionMonitor />
     </div>
   );
 }

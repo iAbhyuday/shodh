@@ -31,7 +31,17 @@ from docling.datamodel.pipeline_options import (
 from docling.datamodel.pipeline_options_vlm_model import ApiVlmOptions, ResponseFormat
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.pipeline.vlm_pipeline import VlmPipeline
+from src.db.sql_db import SessionLocal, Figures, PaperStructure
 logger = logging.getLogger(__name__)
+
+# db = SessionLocal()  <-- Removed global session
+
+
+@dataclass
+class Figure:
+    """Represents figure."""
+    id: str
+    caption: str
 
 
 @dataclass
@@ -41,7 +51,8 @@ class Section:
     content: str
     section_type: str
     section: Optional[str] = None
-      # abstract, introduction, methods, results, discussion, conclusion, other
+    figures: Optional[List[Figure]] = None
+
 
 
 @dataclass
@@ -131,7 +142,8 @@ class DoclingParser:
     
 
     def _docling_parse(self, input_doc_path):
-        output_dir = Path("/Users/abhyuday/Download/scratch")
+        # Use project-relative scratch directory
+        output_dir = Path("./data/scratch")
         pipeline_options = PdfPipelineOptions()
         IMAGE_RESOLUTION_SCALE = 2.0
         pipeline_options.images_scale = IMAGE_RESOLUTION_SCALE
@@ -320,39 +332,53 @@ class DoclingParser:
         return extracted_data, cleaned_string
 
 
-    def extract_figures(self, outline) -> Tuple[Dict, Dict[str, Any]]:
+    def extract_figures(self, outline, paper_id) -> Tuple[Dict, Dict[str, Any]]:
+        
         base64_only_pattern = r"!\[image\]\(data:image\/png;base64,([^)]+)\)"
         pattern = r"figure (\d+): (.*?)\.\n\n!\[image\]\(data:image\/png;base64,([^)]+)\)"
-        figures = []
+        all_figures = []
         for i in outline:
             if i == "references":
                 continue
             content = outline[i]
+            outline[i] = {"figs": []}
             # extract figure
             fig, cleaned_string = self._extract_fig_remove_data(pattern, content)
             content = cleaned_string
             if len(fig) > 0:
                 for idx, cap, data in fig:
-                    figures.append(
-                        {
-                            "section": i,
+                    fig_meta = {
                             "figure_id": idx,
                             "caption": cap,
-                            "data": data
                         }
-                    )
+                    outline[i]["figs"].append(fig_meta)
+                    fig_meta["section"] = i
+                    fig_meta["paper_id"] = paper_id
+                    fig_meta["data"] = data
+                    all_figures.append(fig_meta)
 
-            extracted_data, cleaned_string = self._extract_and_remove_data(base64_only_pattern, content)
-            for f in extracted_data:
-                figures.append({
-                    "section": i,
-                    "figure_id": None,
-                    "caption": "",
-                    "data": f
-                })
+            _, cleaned_string = self._extract_and_remove_data(base64_only_pattern, content)
             content = cleaned_string
-            outline[i] = content
-        return figures, outline
+            outline[i]["content"] = content
+        return all_figures, outline
+
+    def insert_figures(self, figures, db: SessionLocal):
+        logger.info("Inserting figures to DB")
+        for i in figures:
+            logger.info(f"Inserting: Paper[{i['paper_id']}] Section[{i['section']}] Figure[{i['figure_id']}]")
+            db.merge(Figures(
+                figure_id=i["figure_id"],
+                section=i["section"],
+                paper_id=i["paper_id"],
+                caption=i["caption"],
+                data=i["data"]
+            ))
+        logger.info("Figure insertion complete.")
+        # Commit should be handled by caller or here? 
+        # Since we passed the session, we can flush/commit here but caller context is safer.
+        # But previous code committed here.
+        db.commit()
+            
 
 
     def parse(self, pdf_path: Path, paper_id: str) -> PaperDocument:
@@ -377,13 +403,29 @@ class DoclingParser:
             result.document.save_as_markdown(parent.joinpath(f"{pdf_path.stem}.md"), image_mode=ImageRefMode.EMBEDDED)
             logger.info(f"parsed md save at: {parent.joinpath(f"{pdf_path.stem}.md")}....")
             paper_ir = self.scan_markdown_structure(out_path)
-            logger.info(f"Paper IR generated: {paper_ir.keys()}....")
-            figures, paper_ir = self.extract_figures(paper_ir)
+            structure = "\n".join(list(paper_ir.keys()))
+            # Create local session for this parsing task
+            with SessionLocal() as db:
+                logger.info("Inserting paper outline...")
+                db.merge(PaperStructure(
+                    paper_id=paper_id,
+                    outline=structure
+                ))
+                db.commit()
+                logger.info("Inserted paper outline.")
+                logger.info(f"Paper IR generated: {structure}....")
+                logger.info("Extracting figures....")
+                
+                figures, paper_ir = self.extract_figures(paper_ir, paper_id)
+                logger.info("Extraction complete....")
+                for i in figures:
+                    print(f"Paper: {i['paper_id'] } Section: {i['section']} Fig: {i['figure_id']}")
+                self.insert_figures(figures, db)
             logger.info(f"Cleaned Paper IR generated: {paper_ir.keys()}....")
             title, _ = next(iter(paper_ir.items())) 
             logger.info(f"Title: {title}....")
             del paper_ir[title]
-            abs = paper_ir["abstract"] if "abstract" in paper_ir else ""
+            abs = paper_ir["abstract"]["content"] if "abstract" in paper_ir else ""
             logger.info(f"Abstract: {abs[:30]}....")
             # intro = paper_ir["introduction"] if "introdiction" in paper_ir else ""
             # logger.info(f"Intro: {intro[:20]}....")
@@ -399,21 +441,25 @@ class DoclingParser:
                 logger.info(f"Section: {t}....")
                 if i[0].isdigit():
                     print(i.split(" ", 1)[0])
-                    sec, t = i.split(" ", 1)
+                    sec, _ = i.split(" ", 1)
                     if sec[-1] == ".":
                         sec = sec[:-1]
-                    if not float(sec).is_integer():
+                    if len(sec.split(".")) > 1:
                         sec_type = "subsection"
                         logger.info(f"Subsection: {sec}....")
                 sections.append(
                     Section(
                         title=t.strip(),
-                        content=paper_ir[i],
+                        content=paper_ir[i]["content"],
                         section_type=sec_type,
-                        section=sec
+                        section=sec,
+                        figures=[Figure(
+                            id=f["figure_id"],
+                            caption=f["caption"]
+                        ) for f in paper_ir[i]["figs"]]
                     )
                 )
-            logger.info(f"Returning document.....")
+            logger.info("Returning document.....")
             paper = PaperDocument(
                 paper_id=pdf_path.stem,
                 title=title.strip(),
@@ -426,3 +472,4 @@ class DoclingParser:
         except Exception as e:
             logger.error(f"Failed to parse PDF: {e}")
             raise RuntimeError(f"PDF parsing failed: {e}")
+

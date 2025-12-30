@@ -1,12 +1,9 @@
-"""
-LlamaIndex-based ingestion pipeline for research papers.
-Uses the official IngestionPipeline with declarative transformations.
-"""
+import json
 import logging
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
-
+from dataclasses import asdict
 from .docling_parser import PaperDocument
 
 logger = logging.getLogger(__name__)
@@ -21,19 +18,20 @@ class PaperIngestionPipeline:
     
     def __init__(
         self,
-        embedding_model: str = "nomic-embed-text:v1.5",
-        ollama_base_url: str = "http://localhost:11434",
-        collection_name: str = "shodh_papers",
-        chunk_size: int = 1024,  # Increased for markdown chunks
-        chunk_overlap: int = 100,  # Increased overlap
-        chroma_persist_path: str = "./chroma_db"
+        embedding_model: Optional[str] = None,
+        collection_name: Optional[str] = None,
+        chunk_size: int = 1024,
+        chunk_overlap: int = 100,
+        chroma_persist_path: Optional[str] = None
     ):
-        self.embedding_model = embedding_model
-        self.ollama_base_url = ollama_base_url
-        self.collection_name = collection_name
+        from src.core.config import get_settings
+        settings = get_settings()
+        
+        self.embedding_model = embedding_model # Factory handles defaults if None
+        self.collection_name = collection_name or settings.COLLECTION_NAME
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-        self.chroma_persist_path = chroma_persist_path
+        self.chroma_persist_path = chroma_persist_path or settings.VECTOR_DB_PATH
         
         self._pipeline = None
         self._vector_store = None
@@ -43,8 +41,10 @@ class PaperIngestionPipeline:
         if self._vector_store is None:
             import chromadb
             from llama_index.vector_stores.chroma import ChromaVectorStore
+            from src.db.vector_store import get_chroma_client
+            from src.core.config import get_settings
             
-            chroma_client = chromadb.PersistentClient(path=self.chroma_persist_path)
+            chroma_client = get_chroma_client(get_settings())
             chroma_collection = chroma_client.get_or_create_collection(
                 name=self.collection_name
             )
@@ -53,12 +53,9 @@ class PaperIngestionPipeline:
         return self._vector_store
     
     def _get_embed_model(self):
-        """Get Ollama embedding model."""
-        from llama_index.embeddings.ollama import OllamaEmbedding
-        return OllamaEmbedding(
-            model_name=self.embedding_model,
-            base_url=self.ollama_base_url
-        )
+        """Get embedding model via Factory."""
+        from src.core.llm_factory import LLMFactory
+        return LLMFactory.get_llama_index_embedding(model_name=self.embedding_model)
     
     def _build_pipeline(self):
         """Build LlamaIndex IngestionPipeline with transformations."""
@@ -108,11 +105,18 @@ class PaperIngestionPipeline:
                     id_=f"{parsed_doc.paper_id}_abstract"
                 ))
             for _, section in enumerate(parsed_doc.sections):
-                documents.append(Document(
+                doc = Document(
                     text=section.content,
-                    metadata={"paper_id": parsed_doc.paper_id, "section": section.title},
+                    metadata={
+                        "paper_id": parsed_doc.paper_id,
+                        "section": section.title,
+                        "id_": section.section if section.section else "",
+                        "figures": json.dumps(list(map(lambda x:  asdict(x), section.figures)))
+                    },
                     id_=f"{parsed_doc.paper_id}_section_{section.section}" if section.section else ""
-                ))
+                )
+                doc.excluded_embed_metadata_keys = ["figures"]
+                documents.append(doc)
 
         # Add figure captions as helper documents? 
         # Ideally figures should be embedded in markdown, but captions are useful.
@@ -149,107 +153,6 @@ class PaperIngestionPipeline:
         logger.info(f"Ingested {len(nodes)} nodes for {parsed_doc.paper_id}")
         return len(nodes)
     
-    def query(
-        self,
-        query_text: str,
-        paper_id: Optional[str] = None,
-        top_k: int = 5
-    ) -> List[dict]:
-        """
-        Query the vector store for relevant chunks.
-        
-        Args:
-            query_text: Query string
-            paper_id: Optional filter by paper
-            top_k: Number of results
-            
-        Returns:
-            List of matching chunks with scores
-        """
-        from llama_index.core import VectorStoreIndex
-        
-        # Create index from vector store
-        index = VectorStoreIndex.from_vector_store(
-            self._get_vector_store(),
-            embed_model=self._get_embed_model()
-        )
-        
-        # Build retriever with filters
-        if paper_id:
-            from llama_index.core.vector_stores import MetadataFilters, MetadataFilter
-            filters = MetadataFilters(filters=[
-                MetadataFilter(key="paper_id", value=paper_id)
-            ])
-            retriever = index.as_retriever(
-                similarity_top_k=top_k,
-                filters=filters
-            )
-        else:
-            retriever = index.as_retriever(similarity_top_k=top_k)
-        
-        # Query
-        nodes = retriever.retrieve(query_text)
-        
-        results = []
-        for node in nodes:
-            results.append({
-                "content": node.text,
-                "score": node.score,
-                "metadata": node.metadata
-            })
-        
-        return results
-
-    def get_query_engine(self, paper_id: str):
-        """
-        Get a LlamaIndex QueryEngine for a specific paper.
-        Used by the ReAct Agent Tools.
-        """
-        from llama_index.core import VectorStoreIndex, get_response_synthesizer
-        from llama_index.core.retrievers import VectorIndexRetriever
-        from llama_index.core.query_engine import RetrieverQueryEngine
-        from llama_index.core.vector_stores import MetadataFilters, MetadataFilter
-
-        # 1. Get Filters
-        filters = MetadataFilters(filters=[
-            MetadataFilter(key="paper_id", value=paper_id)
-        ])
-
-        # 2. Build Index (from existing store)
-        index = VectorStoreIndex.from_vector_store(
-            self._get_vector_store(),
-            embed_model=self._get_embed_model()
-        )
-
-        # 3. Configure Retriever (Top-5 chunks)
-        retriever = VectorIndexRetriever(
-            index=index,
-            similarity_top_k=5,
-            filters=filters
-        )
-
-        # 4. Configure Ollama LLM for response synthesis
-        from llama_index.llms.ollama import Ollama
-        llm = Ollama(
-            model="qwen2.5vl:7b",
-            base_url=self.ollama_base_url,
-            temperature=0.7,
-            request_timeout=120.0
-        )
-
-        # 5. Configure Response Synthesizer with Ollama
-        response_synthesizer = get_response_synthesizer(
-            response_mode="compact",
-            llm=llm
-        )
-
-        # 6. Build Query Engine
-        query_engine = RetrieverQueryEngine(
-            retriever=retriever,
-            response_synthesizer=response_synthesizer,
-        )
-
-        return query_engine
 
 
 # Alias for backward compatibility

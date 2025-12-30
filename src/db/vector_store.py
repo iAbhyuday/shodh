@@ -4,12 +4,33 @@ from src.core.config import get_settings
 
 settings = get_settings()
 
+
+def get_chroma_client(settings):
+    """
+    Get ChromaDB client based on configuration.
+    Returns HttpClient if HOST is set, otherwise PersistentClient.
+    """
+    if settings.VECTOR_DB_HOST:
+        return chromadb.HttpClient(
+            host=settings.VECTOR_DB_HOST,
+            port=settings.VECTOR_DB_PORT,
+            settings=ChromaSettings()
+        )
+    return chromadb.PersistentClient(path=settings.VECTOR_DB_PATH)
+
+
 class VectorStore:
     def __init__(self):
-        self.client = chromadb.PersistentClient(path=settings.VECTOR_DB_PATH)
-        self.collection = self.client.get_or_create_collection(name=settings.COLLECTION_NAME)
+        self.client = get_chroma_client(settings)
+        self.collection = self.client.get_or_create_collection(
+            name=settings.COLLECTION_NAME)
 
-    def add_documents(self, documents: list[str], metadatas: list[dict], ids: list[str]):
+    def add_documents(
+            self,
+            documents: list[str],
+            metadatas: list[dict],
+            ids: list[str]
+    ):
         """
         Add documents to the vector store.
         """

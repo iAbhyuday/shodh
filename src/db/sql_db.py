@@ -1,6 +1,6 @@
-from sqlalchemy import create_engine, Column, String, Integer, DateTime, Boolean, Text
+from sqlalchemy import create_engine, Column, String, Integer, DateTime, Boolean, Text, Table, ForeignKey, func
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 
 # SQLite database
@@ -44,14 +44,18 @@ class UserPaper(Base):
 
 
 class Conversation(Base):
-    """Stores chat conversations linked to papers."""
+    """Stores chat conversations linked to papers or projects."""
     __tablename__ = "conversations"
     
     id = Column(Integer, primary_key=True, index=True)
-    paper_id = Column(String, index=True)  # Links to UserPaper.paper_id
+    paper_id = Column(String, index=True, nullable=True)  # Links to UserPaper.paper_id
+    project_id = Column(Integer, ForeignKey("projects.id"), index=True, nullable=True)
     title = Column(String, nullable=True)  # Auto-generated or user-defined
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    project = relationship("Project", backref="conversations")
 
 
 class Message(Base):
@@ -65,6 +69,46 @@ class Message(Base):
     citations_json = Column(Text, nullable=True)  # JSON array of citation objects
     mode = Column(String, nullable=True)  # 'agent' or 'contextual'
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PaperStructure(Base):
+    """Stores paper outline."""
+    __tablename__ = "outlines"
+
+    paper_id = Column(String, primary_key=True)
+    outline = Column(String)
+
+
+class Figures(Base):
+    """Store figures in DB."""
+    __tablename__ = "figures"
+    figure_id = Column(String, primary_key=True)
+    paper_id = Column(String, primary_key=True)
+    section = Column(String)
+    caption = Column(String)
+    data = Column(String)
+
+# --- Projects & Collections ---
+
+project_papers = Table(
+    "project_papers",
+    Base.metadata,
+    Column("project_id", Integer, ForeignKey("projects.id"), primary_key=True),
+    Column("paper_id", String, ForeignKey("user_papers.paper_id"), primary_key=True),
+)
+
+class Project(Base):
+    """Represents a research collection or project."""
+    __tablename__ = "projects"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    description = Column(String, nullable=True)
+    research_dimensions = Column(Text, nullable=True) # Preliminary info to guide research q&a
+    created_at = Column(DateTime, default=func.now())
+    
+    # Relationship to papers via association table
+    papers = relationship("UserPaper", secondary=project_papers, backref="projects")
 
 def init_db():
     Base.metadata.create_all(bind=engine)
