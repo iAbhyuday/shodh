@@ -8,7 +8,7 @@
 > **This project is currently under active development.** Features effectively act as a proof-of-concept and may change.
 
 ## 🌟 Overview
-**Shodh** (Hindi for "Discovery") is an agentic AI platform designed to supercharge research workflows. It combines a real-time paper feed with a powerful personal library, allowing researchers to ingest, understand, and synthesize complex academic papers using RAG and AI Agents.
+**Shodh** (Hindi for "Research") is an agentic AI platform designed to supercharge research workflows. It combines a real-time paper feed with a powerful personal library, allowing researchers to ingest, understand, and synthesize complex academic papers using RAG and AI Agents.
 
 ## ✨ Key Features
 -   **🔍 Discovery**: Daily trending papers from Hugging Face with **Multi-Tag Filtering** and smart search.
