@@ -34,6 +34,7 @@ class UserPaper(Base):
     ingestion_status = Column(String, nullable=True)  # pending, processing, completed, failed
     chunk_count = Column(Integer, nullable=True)  # Number of chunks indexed
     ingested_at = Column(DateTime, nullable=True)  # When ingestion completed
+    error_message = Column(Text, nullable=True) # Error details if failed
     
     # User interaction state
     is_favorited = Column(Boolean, default=False)

@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "models/gemini-1.5-flash-latest"
     GEMINI_EMBEDDING_MODEL: str = "models/text-embedding-004"
 
+    # Ingestion Configuration
+    DOCLING_ENABLE_VLM: bool = False
+    DOCLING_VLM_MODEL: str = "smolvlm-v1" 
+    DOCLING_VLM_API_URL: str = "http://localhost:11434/v1/chat/completions"
+    DOCLING_VLM_API_KEY: str | None = None
+    DOCLING_VLM_PROMPT: str = "Convert this page to markdown."
+
     # CHROMA_PERSIST_PATH is removed in favor of VECTOR_DB_PATH
 
     model_config = {
@@ -55,3 +62,7 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings():
     return Settings()
+
+def reload_settings():
+    get_settings.cache_clear()
+    return get_settings()

@@ -54,6 +54,13 @@ interface DiscoverViewProps {
     title?: string;
     subtitle?: string;
     showSearch?: boolean;
+    // New Props for Sort/Filter
+    availableTags?: string[];
+    selectedTags?: string[];
+    setSelectedTags?: (tags: string[]) => void;
+    sortBy?: "date_desc" | "date_asc" | "title_asc" | "title_desc";
+    setSortBy?: (sort: any) => void;
+    onTagClick?: (tag: string) => void;
 }
 
 const DiscoverView: React.FC<DiscoverViewProps> = ({
@@ -78,7 +85,13 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({
     onToggleFavorite,
     title = "Discovery Horizon",
     subtitle = "Explore the global frontier of research publications.",
-    showSearch = true
+    showSearch = true,
+    availableTags = [],
+    selectedTags = [],
+    setSelectedTags,
+    sortBy = "date_desc",
+    setSortBy,
+    onTagClick
 }) => {
     return (
         <>
@@ -88,7 +101,7 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({
                     <p className="text-gray-400 text-base mb-10 max-w-2xl mx-auto">{subtitle}</p>
 
                     {showSearch && (
-                        <div className="max-w-2xl mx-auto relative group">
+                        <div className="max-w-2xl mx-auto relative group flex flex-col gap-4">
                             <style>{`
                                 @keyframes breathing {
                                     0%, 100% { 
@@ -117,6 +130,41 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({
                                 />
                             </form>
                             <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-indigo-500/10 rounded-3xl blur-xl opacity-0 group-focus-within:opacity-100 transition duration-1000 pointer-events-none" />
+
+                            {/* Sort & Filter Controls - Only show when searching or results exist */}
+                            {(searchQuery || feed.length > 0 || selectedTags.length > 0) && setSortBy && setSelectedTags && (
+                                <div className="flex gap-4 justify-end items-center animate-in fade-in slide-in-from-top-2 duration-300 flex-wrap">
+                                    {/* Active Filter Chips */}
+                                    {selectedTags.map(tag => (
+                                        <div key={tag} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-sm font-bold">
+                                            <span>#{tag}</span>
+                                            <button
+                                                onClick={() => setSelectedTags(selectedTags.filter(t => t !== tag))}
+                                                className="hover:text-white transition-colors"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    ))}
+
+                                    {/* Sort Dropdown */}
+                                    <div className="relative">
+                                        <select
+                                            value={sortBy}
+                                            onChange={(e) => setSortBy(e.target.value)}
+                                            className="appearance-none bg-[#161618] border border-white/10 text-gray-300 text-sm font-medium py-2 pl-4 pr-10 rounded-xl focus:outline-none focus:border-indigo-500/50 hover:border-white/20 transition-all cursor-pointer"
+                                        >
+                                            <option value="date_desc">Newest First</option>
+                                            <option value="date_asc">Oldest First</option>
+                                            <option value="title_asc">Name (A-Z)</option>
+                                            <option value="title_desc">Name (Z-A)</option>
+                                        </select>
+                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
+                                            <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -166,6 +214,7 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({
                                     activeProjectMenu={activeProjectMenu}
                                     setActiveProjectMenu={setActiveProjectMenu}
                                     ingestionStatus={ingestionStatus}
+                                    onTagClick={onTagClick}
                                 />
                             ))}
                         </div>

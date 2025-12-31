@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
 from sqlalchemy.orm import Session
 import datetime
 import requests
@@ -33,7 +33,8 @@ def fetch_daily_papers(date: str = None, limit: int = 100):
     if date:
         url = f"{url}?date={date}"
     try:
-        resp = requests.get(url)
+        # verify=False used to bypass local SSL cert issues on dev machine
+        resp = requests.get(url, verify=False, timeout=5)
         resp.raise_for_status()
         data = resp.json()
         # Data is list of papers. Flatten/Format.
@@ -64,10 +65,14 @@ def fetch_daily_papers(date: str = None, limit: int = 100):
         return []
 
 def search_papers(query: str, limit: int = 50):
+    query = query.strip()
+    if not query:
+        return fetch_daily_papers(limit=limit)
     today = datetime.date.today()
-    url = f"https://huggingface.co/api/papers/search?q={query}&limit={limit}"
+    url = "https://huggingface.co/api/papers/search"
     try:
-        resp = requests.get(url)
+        # verify=False used to bypass local SSL cert issues on dev machine
+        resp = requests.get(url, params={"q": query, "limit": limit}, verify=False, timeout=5)
         resp.raise_for_status()
         data = resp.json()
         papers = []
@@ -93,7 +98,7 @@ def search_papers(query: str, limit: int = 50):
 
 
 
-def _update_status(paper_id: str, status: str, chunk_count: int = None, pdf_path: str = None):
+def _update_status(paper_id: str, status: str, chunk_count: int = None, pdf_path: str = None, error_message: str = None):
     """Helper to safely update paper status in new transaction"""
     db = SessionLocal()
     try:
@@ -104,6 +109,8 @@ def _update_status(paper_id: str, status: str, chunk_count: int = None, pdf_path
                 paper.chunk_count = chunk_count
             if pdf_path:
                 paper.pdf_path = pdf_path
+            if error_message:
+                paper.error_message = error_message
             
             if status == "completed":
                 paper.ingested_at = datetime.datetime.utcnow()
@@ -168,43 +175,24 @@ def background_ingest_paper(paper_id: str):
         
     except Exception as e:
         logger.error(f"Ingestion failed for {paper_id}: {e}")
-        _update_status(paper_id, "failed")
+        _update_status(paper_id, "failed", error_message=str(e))
 
 # --- Endpoints ---
 
 @router.get("/feed")
 def get_feed(
     date: str = None,
-    q: str = None,
     page: int = 1,
-    limit: int = 20,
+    limit: int = 50,
     db: Session = Depends(get_db)
 ):
     """
-    Get daily papers feed. 
+    Get daily papers feed from HuggingFace.
     Enriches with user state (is_saved, is_favorited) from SQL.
-    Supports filtering by date (YYYY-MM-DD) and keyword (q).
+    Supports filtering by date (YYYY-MM-DD).
     Supports pagination via page parameter (1-indexed).
     """
-    # Filter by keyword if provided
-    if q:
-        query = q.lower()
-        # Use the search API for better results if keyword search is requested
-        papers = search_papers(q, limit=limit * 5)
-        
-        # Optionally perform extra local filtering if needed, 
-        # though search_papers should already handle it.
-        filtered = []
-        for p in papers:
-            # Search title, abstract, authors, and tags
-            text = (p['title'] + " " + p['abstract'] + " " + p['authors']).lower()
-            tags = [t.lower() for t in p['metrics'].get('tags', [])]
-            if query in text or any(query in t for t in tags):
-                filtered.append(p)
-        papers = filtered
-    else:
-        papers = fetch_daily_papers(date=date, limit=200)
-
+    papers = fetch_daily_papers(date=date, limit=500)
 
     # Calculate pagination
     total_papers = len(papers)
@@ -229,6 +217,80 @@ def get_feed(
         "page": page,
         "limit": limit,
         "total_pages": (total_papers + limit - 1) // limit  # Ceiling division
+    }
+
+@router.get("/search")
+def search_papers_endpoint(
+    q: str = Query(""),
+    page: int = 1,
+    limit: int = 50,
+    sort: str = "date_desc",
+    tags: List[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Search papers via Hugging Face API.
+    Supports sorting (date_desc, date_asc, title_asc) and multi-tag filtering.
+    If q is empty, returns latest/trending papers filtered by tags.
+    """
+    query = q.lower() if q else ""
+    today = datetime.date.today()
+    # Fetch papers. If q is empty, search_papers("") should return latest/trending.
+    # We fetch more to allow for valid filtering intersection. 
+    # HF limit is 120.
+    papers = search_papers(q, limit=100)
+    
+    # 1. Collect all available tags (facets)
+    all_tags = set()
+    for p in papers:
+        for t in (p['metrics'].get('tags') or []):
+            all_tags.add(t)
+    sorted_tags = sorted(list(all_tags))
+
+    # 2. Filter by Tags (Intersection: Paper must have ALL selected tags)
+    if tags:
+        required_tags = {t.lower() for t in tags}
+        filtered = []
+        for p in papers:
+             p_tags = {t.lower() for t in (p['metrics'].get('tags') or [])}
+             if required_tags.issubset(p_tags):
+                 filtered.append(p)
+        papers = filtered
+
+    # 3. Sort
+    if sort == "date_asc":
+        papers.sort(key=lambda x: x['published_date'])
+    elif sort == "title_asc":
+        papers.sort(key=lambda x: x['title'].lower())
+    elif sort == "title_desc":
+        papers.sort(key=lambda x: x['title'].lower(), reverse=True)
+    else: # date_desc (default)
+        papers.sort(key=lambda x: x['published_date'], reverse=True)
+
+    # Calculate pagination
+    total_papers = len(papers)
+    start_idx = (page - 1) * limit
+    end_idx = start_idx + limit
+    paginated_papers = papers[start_idx:end_idx]
+
+    # Enrich with SQL state
+    user_papers = db.query(UserPaper).filter(
+        UserPaper.paper_id.in_([p['id'] for p in paginated_papers])).all()
+    state_map = {up.paper_id: up for up in user_papers}
+    
+    for p in paginated_papers:
+        up = state_map.get(p['id'])
+        p['is_favorited'] = up.is_favorited if up else False
+        p['is_saved'] = up.is_saved if up else False
+        p['project_ids'] = [proj.id for proj in up.projects] if up else []
+        
+    return {
+        "papers": paginated_papers,
+        "total": total_papers,
+        "page": page,
+        "limit": limit,
+        "total_pages": (total_papers + limit - 1) // limit,
+        "tags": sorted_tags # Return facets
     }
 
 @router.post("/favorite")
@@ -369,7 +431,8 @@ def get_ingestion_status(paper_id: str, db: Session = Depends(get_db)):
         "ingestion_status": paper.ingestion_status,
         "chunk_count": paper.chunk_count,
         "pdf_path": paper.pdf_path,
-        "ingested_at": paper.ingested_at.isoformat() if paper.ingested_at else None
+        "ingested_at": paper.ingested_at.isoformat() if paper.ingested_at else None,
+        "error_message": paper.error_message
     }
 @router.get("/insights/{paper_id}")
 async def get_paper_insights(paper_id: str, db: Session = Depends(get_db)):

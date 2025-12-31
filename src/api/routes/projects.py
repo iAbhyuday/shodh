@@ -91,6 +91,7 @@ def add_paper_to_project(
 ):
     """Link a paper to a project using its paper_id (arxiv id)."""
     from src.api.routes.papers import background_ingest_paper
+    logger.info(f"Paper details: {request}")
     
     paper_id = request.paper_id
     project = db.query(Project).filter(Project.id == project_id).first()
@@ -135,25 +136,55 @@ def add_paper_to_project(
                 authors = ", ".join([a.find('atom:name', namespace).text for a in entry.findall('atom:author', namespace)])
                 published = entry.find('atom:published', namespace).text
                 
-                paper = UserPaper(
-                    paper_id=paper_id,
-                    title=title,
-                    authors=authors,
-                    summary=summary,
-                    url=f"https://arxiv.org/abs/{paper_id}",
-                    published_date=published[:10],
-                    ingestion_status="pending"
-                )
-                db.add(paper)
-                db.commit()
-                db.refresh(paper)
+                try:
+                    paper = UserPaper(
+                        paper_id=paper_id,
+                        title=title,
+                        authors=authors,
+                        summary=summary,
+                        url=f"https://arxiv.org/abs/{paper_id}",
+                        published_date=published[:10],
+                        ingestion_status="pending"
+                    )
+                    db.add(paper)
+                    db.commit()
+                    db.refresh(paper)
+                except Exception as e:
+                    db.rollback()
+                    logger.warning(f"IntegrityError or race condition adding paper {paper_id}, trying to fetch existing: {e}")
+                    paper = db.query(UserPaper).filter(UserPaper.paper_id == paper_id).first()
+                    if not paper:
+                         raise HTTPException(status_code=500, detail=f"Failed to create or retrieve paper {paper_id}")
+                    
+                    # Update metadata if missing
+                    updated = False
+                    if not paper.authors or paper.authors == "Unknown":
+                        paper.authors = authors
+                        updated = True
+                    if not paper.summary:
+                        paper.summary = summary
+                        updated = True
+                    if not paper.published_date:
+                        paper.published_date = published[:10]
+                        updated = True
+                    if not paper.title or paper.title == paper_id: # strictly updating purely ID titles
+                         paper.title = title
+                         updated = True
+                         
+                    if updated:
+                        db.commit()
+                        logger.info(f"Updated metadata for existing paper {paper_id}")
+
             else:
                 raise HTTPException(status_code=404, detail="Paper not found on ArXiv.")
         except HTTPException:
             raise
         except Exception as e:
             logger.error(f"Failed to fetch paper {paper_id} from ArXiv: {e}")
-            raise HTTPException(status_code=404, detail=f"Paper not found and ArXiv fetch failed: {str(e)}")
+            # Try once more to find it in DB just in case
+            paper = db.query(UserPaper).filter(UserPaper.paper_id == paper_id).first()
+            if not paper:
+                 raise HTTPException(status_code=404, detail=f"Paper not found and ArXiv fetch failed: {str(e)}")
     
     if paper not in project.papers:
         project.papers.append(paper)

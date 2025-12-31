@@ -8,6 +8,7 @@ import LibraryView from './components/LibraryView';
 import ProjectView from './components/ProjectView';
 import ReaderPanel from './components/ReaderPanel';
 import AssistantView from './components/AssistantView';
+import SettingsModal from './components/SettingsModal';
 
 // API Base URL
 const API_URL = "http://localhost:8000/api";
@@ -46,6 +47,7 @@ type Project = {
 export default function Home() {
   /* State */
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [feed, setFeed] = useState<Paper[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -55,6 +57,9 @@ export default function Home() {
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [sortBy, setSortBy] = useState<"date_desc" | "date_asc" | "title_asc" | "title_desc">("date_desc");
 
 
   // Pagination
@@ -569,16 +574,63 @@ export default function Home() {
     setActiveView('assistant');
   };
 
-  const fetchFeed = async () => {
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCurrentPage(1); // Reset to page 1 on new search
+    fetchFeed();
+  };
+
+  const handleTagClick = (tag: string) => {
+    // Check if tag is already selected
+    const isSelected = selectedTags.includes(tag);
+    let newTags = isSelected
+      ? selectedTags.filter(t => t !== tag)
+      : [...selectedTags, tag];
+
+    // Update state
+    setSelectedTags(newTags);
+
+    // If we are in "Search Mode" (searchQuery exists) OR if we have tags (Filtering Mode), we need to fetch.
+    // Logic:
+    // If searchQuery exists -> It's a search Refinement.
+    // If searchQuery is empty -> It's a Tag Browse.
+    // In both cases, we want to fetch with the new tags.
+    // However, if we deselected the last tag and no query, we should probably go back to feed?
+    // Actually, fetchFeed logic below handles routing to /search if query OR tags exist.
+
+    // We rely on useEffect to trigger the fetch if tags changed. But useEffect currently checks invalid deps.
+    // Only if searchQuery is set? No, we want tag browsing too.
+  };
+
+  // Re-fetch when sort or tags change
+  useEffect(() => {
+    // If we have a query OR tags, we are in "Search/Browse" mode -> Trigger Fetch
+    // If we have neither, we are in "Feed" mode -> Trigger Fetch (to go back to daily feed)
+    // Actually, we can just always fetch when these change?
+    // YES.
+    setCurrentPage(1);
+    fetchFeed();
+  }, [sortBy, selectedTags]); // Intentionally removed searchQuery from deps to avoid auto-search on type
+
+  const fetchFeed = async (options?: { queryOverride?: string }) => {
     setLoading(true);
     setError(false);
     try {
       // Build Query
-      const params = new URLSearchParams({ limit: "20", page: currentPage.toString() });
-      if (searchQuery) params.append("q", searchQuery);
+      const params = new URLSearchParams({ limit: "50", page: currentPage.toString() });
 
+      const effectiveQuery = options?.queryOverride ?? searchQuery;
 
-      const res = await fetch(`${API_URL}/feed?${params.toString()}`);
+      // Determine endpoint: use /search if query OR tags exist
+      let endpoint = "/feed";
+      if (effectiveQuery || selectedTags.length > 0) {
+        endpoint = "/search";
+        if (effectiveQuery) params.append("q", effectiveQuery);
+        params.append("sort", sortBy);
+        selectedTags.forEach(t => params.append("tags", t));
+      }
+
+      const res = await fetch(`${API_URL}${endpoint}?${params.toString()}`);
       if (!res.ok) throw new Error("API Error");
       const data = await res.json();
 
@@ -586,6 +638,12 @@ export default function Home() {
       setFeed(data.papers || []);
       setTotalPages(data.total_pages || 1);
       setTotalPapers(data.total || 0);
+
+      // Update facets only if we are searching (and maybe not filtering to narrow down?)
+      // Actually simple rule: Update facets from response if present.
+      if (data.tags) {
+        setAvailableTags(data.tags);
+      }
     } catch (e) {
       console.error("Failed to fetch feed", e);
       setError(true);
@@ -633,11 +691,7 @@ export default function Home() {
     setLoading(false);
   };
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setCurrentPage(1); // Reset to page 1 on new search
-    fetchFeed();
-  };
+
 
   const goToPage = (page: number) => {
     if (page >= 1 && page <= totalPages) {
@@ -851,7 +905,7 @@ export default function Home() {
               Shodh (शोध)
             </h1>
           </div>
-          <button onClick={fetchFeed} className="p-2 hover:bg-neutral-800 rounded-full transition text-gray-400 hover:text-white" title="Refresh Feed">
+          <button onClick={() => fetchFeed()} className="p-2 hover:bg-neutral-800 rounded-full transition text-gray-400 hover:text-white" title="Refresh Feed">
             <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
@@ -959,7 +1013,17 @@ export default function Home() {
         </nav>
 
         {/* Sidebar Toggle */}
-        <div className="p-2 border-t border-white/10">
+        <div className="p-2 border-t border-white/10 space-y-1">
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-gray-400 hover:bg-neutral-800 hover:text-white transition-all ${!sidebarOpen ? 'justify-center' : ''}`}
+            title="Settings"
+          >
+            <Settings className="w-5 h-5" />
+            <span className={`transition-opacity duration-200 ${sidebarOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
+              Settings
+            </span>
+          </button>
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-gray-400 hover:bg-neutral-800 hover:text-white transition-all ${!sidebarOpen ? 'justify-center' : ''}`}
@@ -1006,6 +1070,13 @@ export default function Home() {
             onRetry={fetchFeed}
             title={activeView === 'favourites' ? "Personal Collection" : "Research Discovery"}
             subtitle={activeView === 'favourites' ? "A curated space for your most valued research papers." : "Explore the global frontier of research publications."}
+
+            availableTags={availableTags}
+            selectedTags={selectedTags}
+            setSelectedTags={setSelectedTags}
+            sortBy={sortBy}
+            setSortBy={setSortBy}
+            onTagClick={handleTagClick}
           />
         ) : (
           <>
@@ -1170,6 +1241,10 @@ export default function Home() {
         />
       </main>
       <IngestionMonitor />
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
     </div>
   );
 }

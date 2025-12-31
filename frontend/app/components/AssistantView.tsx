@@ -97,7 +97,7 @@ const AssistantView: React.FC<AssistantViewProps> = ({
                                         : 'hover:bg-white/5 border border-transparent'
                                         }`}
                                 >
-                                    <div className="text-sm font-medium text-white line-clamp-2">
+                                    <div className="text-sm font-medium text-white line-clamp-2 break-all">
                                         {conv.title}
                                     </div>
                                     <div className="text-xs text-gray-500 mt-1">
@@ -111,7 +111,7 @@ const AssistantView: React.FC<AssistantViewProps> = ({
             )}
 
             {/* Main Chat Area */}
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 min-w-0 flex flex-col">
                 {selectedPaper ? (
                     <>
                         {/* Paper Header */}
@@ -129,7 +129,7 @@ const AssistantView: React.FC<AssistantViewProps> = ({
                         </div>
 
                         {/* Chat Messages */}
-                        <div className="flex-1 overflow-y-auto space-y-6 p-4 pr-6 customized-scrollbar bg-black/20 flex flex-col-reverse">
+                        <div className="flex-1 min-w-0 overflow-y-auto space-y-6 p-4 pr-6 customized-scrollbar bg-black/20 flex flex-col-reverse">
                             {chatMessages.length === 0 && (
                                 <div className="text-center text-gray-500 py-10 mt-auto">
                                     <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-50" />
@@ -156,8 +156,8 @@ const AssistantView: React.FC<AssistantViewProps> = ({
                                         <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-[90%]`}>
                                             <div
                                                 className={`${msg.role === 'user'
-                                                    ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-5 py-3 shadow-lg'
-                                                    : 'text-gray-200 pl-4 border-l-2 border-indigo-500/50'
+                                                    ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-5 py-3 shadow-lg break-all overflow-hidden'
+                                                    : 'text-gray-200 pl-4 border-l-2 border-indigo-500/50 break-all overflow-hidden'
                                                     }`}
                                             >
                                                 {msg.role === 'user' ? (
@@ -274,7 +274,7 @@ const AssistantView: React.FC<AssistantViewProps> = ({
                     </div>
                 )}
             </div>
-        </div>
+        </div >
     );
 };
 

@@ -45,6 +45,7 @@ interface PaperCardProps {
     setActiveView?: (view: any) => void;
     onRemoveFromCurrentProject?: (paper: Paper) => void;
     onToggleFavorite?: (paper: Paper) => void;
+    onTagClick?: (tag: string) => void;
 }
 
 const isValidUrl = (url: string) => {
@@ -70,7 +71,8 @@ const PaperCard: React.FC<PaperCardProps> = ({
     setIsCreatingProject,
     setActiveView,
     onRemoveFromCurrentProject,
-    onToggleFavorite
+    onToggleFavorite,
+    onTagClick
 }) => {
     const [isExpanded, setIsExpanded] = React.useState(false);
     const metrics = paper.metrics || {};
@@ -149,11 +151,23 @@ const PaperCard: React.FC<PaperCardProps> = ({
 
                 {/* Hashtag Tags Row */}
                 <div className="mt-4 flex flex-wrap gap-2">
-                    {tags.map((tag, idx) => (
-                        <span key={idx} className="text-[10px] font-bold text-indigo-400/60 hover:text-indigo-400 transition-colors">
-                            #{tag.toLowerCase().replace(/\s+/g, '')}
-                        </span>
-                    ))}
+                    {tags.map((tag, idx) => {
+                        const TagComponent = onTagClick ? 'button' : 'span';
+                        return (
+                            <TagComponent
+                                key={idx}
+                                onClick={(e) => {
+                                    if (onTagClick) {
+                                        e.stopPropagation();
+                                        onTagClick(tag);
+                                    }
+                                }}
+                                className={`text-[10px] font-bold text-indigo-400/60 transition-colors ${onTagClick ? 'hover:text-indigo-400 hover:scale-105 active:scale-95 cursor-pointer' : ''}`}
+                            >
+                                #{tag.toLowerCase().replace(/\s+/g, '')}
+                            </TagComponent>
+                        );
+                    })}
                 </div>
 
                 {/* Grouped Action Row Footer */}

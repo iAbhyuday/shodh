@@ -83,11 +83,11 @@ const ProjectView: React.FC<ProjectViewProps> = ({
     chatLoading,
     onFetchConversations,
     useAgentMode,
-    onToggleAgentMode
+    onToggleAgentMode,
 }) => {
     return (
         <div className={`mx-auto animate-in fade-in slide-in-from-left-4 duration-500 ${projectView === 'synthesis' ? 'max-w-none h-[calc(100vh-6rem)] flex flex-col' : 'max-w-5xl'}`}>
-            <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-6">
                     <button
                         onClick={onClose}
@@ -96,10 +96,12 @@ const ProjectView: React.FC<ProjectViewProps> = ({
                         <ArrowLeft className="w-5 h-5" />
                     </button>
                     <div>
-                        <h2 className="text-3xl font-bold text-white tracking-tight">{project.name}</h2>
-                        <p className="text-sm text-gray-500 font-medium uppercase tracking-widest mt-1">
-                            {feed.length} papers in collection
-                        </p>
+                        <h2 className={`font-bold text-white tracking-tight ${projectView === 'synthesis' ? 'text-2xl' : 'text-3xl'}`}>{project.name}</h2>
+                        {projectView !== 'synthesis' && (
+                            <p className="text-sm text-gray-500 font-medium uppercase tracking-widest mt-1">
+                                {feed.length} papers in collection
+                            </p>
+                        )}
                     </div>
                 </div>
 
@@ -131,7 +133,7 @@ const ProjectView: React.FC<ProjectViewProps> = ({
             {projectView === 'synthesis' ? (
                 <div className="glass rounded-3xl border-none flex-1 flex overflow-hidden shadow-2xl animate-in zoom-in-95 duration-500">
                     <div className="w-72 border-r border-indigo-500/30 bg-black/20 flex flex-col shadow-[20px_0_40px_-10px_rgba(79,70,229,0.15)] z-10 relative">
-                        <div className="p-6 border-b border-white/5">
+                        <div className="p-4 border-b border-white/5">
                             <button
                                 onClick={onStartNewChat}
                                 className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600/10 text-indigo-400 text-xs font-bold rounded-xl hover:bg-indigo-600/20 transition-all border border-indigo-500/20 uppercase tracking-widest"
@@ -156,15 +158,15 @@ const ProjectView: React.FC<ProjectViewProps> = ({
                                             : 'hover:bg-white/5 border border-transparent text-gray-400 hover:text-gray-200'
                                             }`}
                                     >
-                                        <p className="text-xs font-bold line-clamp-2 leading-relaxed">{conv.title}</p>
+                                        <p className="text-xs font-bold line-clamp-2 break-all leading-relaxed">{conv.title}</p>
                                     </button>
                                 ))
                             )}
                         </div>
                     </div>
 
-                    <div className="flex-1 flex flex-col bg-black/10">
-                        <div className="flex-1 overflow-y-auto p-8 space-y-10 flex flex-col-reverse customized-scrollbar">
+                    <div className="flex-1 min-w-0 flex flex-col bg-black/10">
+                        <div className="flex-1 min-w-0 overflow-y-auto p-8 space-y-10 flex flex-col-reverse customized-scrollbar">
                             {chatLoading && (
                                 <div className="flex justify-start w-full animate-in fade-in slide-in-from-bottom-2 duration-500 mb-4">
                                     <style>{`
@@ -194,8 +196,8 @@ const ProjectView: React.FC<ProjectViewProps> = ({
                                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                     <div
                                         className={`${msg.role === 'user'
-                                            ? 'max-w-[85%] bg-indigo-600 text-white p-5 rounded-3xl rounded-tr-sm shadow-xl'
-                                            : 'w-full text-gray-200'
+                                            ? 'max-w-[85%] bg-indigo-600 text-white p-5 rounded-3xl rounded-tr-sm shadow-xl break-all overflow-hidden'
+                                            : 'w-full text-gray-200 break-all overflow-hidden'
                                             }`}
                                     >
                                         <div className="prose prose-invert prose-sm prose-p:leading-relaxed prose-p:mb-4 max-w-none">
@@ -261,8 +263,9 @@ const ProjectView: React.FC<ProjectViewProps> = ({
                         />
                     ))}
                 </div>
-            )}
-        </div>
+            )
+            }
+        </div >
     );
 };
 

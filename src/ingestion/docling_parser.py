@@ -17,12 +17,7 @@ from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
 
 
-import json
-import os
-from typing import Optional
-import requests
 from docling_core.types.doc.page import SegmentedPage
-from dotenv import load_dotenv
 
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import (
@@ -32,6 +27,8 @@ from docling.datamodel.pipeline_options_vlm_model import ApiVlmOptions, Response
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.pipeline.vlm_pipeline import VlmPipeline
 from src.db.sql_db import SessionLocal, Figures, PaperStructure
+from src.core.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 # db = SessionLocal()  <-- Removed global session
@@ -139,63 +136,77 @@ class DoclingParser:
         except Exception as e:
             logger.warning(f"Failed to convert table to markdown: {e}")
             return str(table_data)
-    
+
+    def _build_format_options(self, settings):
+        """Build Docling format options based on settings."""
+        format_options = {}
+
+        if settings.DOCLING_ENABLE_VLM:
+             logger.info(f"Enabling VLM Pipeline with model: {settings.DOCLING_VLM_MODEL}")
+             
+             # Configure VLM options using ApiVlmOptions for remote/local endpoints
+             pipeline_options = VlmPipelineOptions()
+             pipeline_options.images_scale = 2.0
+             pipeline_options.generate_page_images = True
+             pipeline_options.generate_picture_images = True
+             pipeline_options.enable_remote_services = True
+             
+             # Construct API URL from generic settings
+             api_url = settings.DOCLING_VLM_API_URL
+             headers = {}
+             if settings.DOCLING_VLM_API_KEY:
+                 headers["Authorization"] = f"Bearer {settings.DOCLING_VLM_API_KEY}"
+             
+             pipeline_options.vlm_options = ApiVlmOptions(
+                 url=api_url,
+                 headers=headers,
+                 params=dict(
+                     model=settings.DOCLING_VLM_MODEL,
+                     # Optional: Add max_tokens or other params if needed
+                 ),
+                 prompt=settings.DOCLING_VLM_PROMPT, 
+                 response_format=ResponseFormat.DOCTAGS,
+                 timeout=120, # Increased timeout for VLM inference
+                 scale=2.0 
+             )
+
+             format_options = {
+                InputFormat.PDF: PdfFormatOption(
+                    pipeline_cls=VlmPipeline,
+                    pipeline_options=pipeline_options 
+                )
+             }
+        else:
+             logger.info("Using Standard PDF Pipeline")
+             pipeline_options = PdfPipelineOptions()
+             pipeline_options.images_scale = 2.0
+             pipeline_options.generate_page_images = True
+             pipeline_options.generate_picture_images = True
+
+             format_options = {
+                InputFormat.PDF: PdfFormatOption(
+                    pipeline_options=pipeline_options
+                )
+             }
+        return format_options
 
     def _docling_parse(self, input_doc_path):
         # Use project-relative scratch directory
         output_dir = Path("./data/scratch")
-        pipeline_options = PdfPipelineOptions()
-        IMAGE_RESOLUTION_SCALE = 2.0
-        pipeline_options.images_scale = IMAGE_RESOLUTION_SCALE
-        pipeline_options.generate_page_images = True
-        pipeline_options.generate_picture_images = True
-        # pipeline_options.do_formula_enrichment = True
+        settings = get_settings()
+        format_options = self._build_format_options(settings)
+
         doc_converter = DocumentConverter(
-            format_options={
-                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options,
-                                                # pipeline_cls=VlmPipeline
-                                                 )
-            }
+            format_options=format_options
         )
+        input_doc_path = Path(input_doc_path)
+        doc_filename = input_doc_path.stem
+        
         start_time = time.time()
         conv_res = doc_converter.convert(input_doc_path)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        doc_filename = conv_res.input.file.stem
-        # Save page images
-        # for page_no, page in conv_res.document.pages.items():
-        #     page_no = page.page_no
-        #     page_image_filename = output_dir / f"{doc_filename}-{page_no}.png"
-        #     with page_image_filename.open("wb") as fp:
-        #         page.image.pil_image.save(fp, format="PNG")
-        # # Save images of figures and tables
-        # table_counter = 0
-        # picture_counter = 0
-        # for element, _level in conv_res.document.iterate_items():
-        #     if isinstance(element, TableItem):
-        #         table_counter += 1
-        #         element_image_filename = (
-        #             output_dir / f"{doc_filename}-table-{table_counter}.png"
-        #         )
-        #         with element_image_filename.open("wb") as fp:
-        #             element.get_image(conv_res.document).save(fp, "PNG")
-        #     if isinstance(element, PictureItem):
-        #         picture_counter += 1
-        #         element_image_filename = (
-        #             output_dir / f"{doc_filename}-picture-{picture_counter}.png"
-        #         )
-        #         with element_image_filename.open("wb") as fp:
-        #             element.get_image(conv_res.document).save(fp, "PNG")
-        # Save markdown with embedded pictures
-        # md_filename = output_dir / f"{doc_filename}-with-images.md"
-        # conv_res.document.save_as_markdown(md_filename, image_mode=ImageRefMode.EMBEDDED)
-        # Save markdown with externally referenced pictures
-        # md_filename = output_dir / f"{doc_filename}-with-image-refs.md"
-        # conv_res.document.save_as_markdown(md_filename, image_mode=ImageRefMode.REFERENCED)
-        # # Save HTML with externally referenced pictures
-        # html_filename = output_dir / f"{doc_filename}-with-image-refs.html"
-        # conv_res.document.save_as_html(html_filename, image_mode=ImageRefMode.REFERENCED)
         end_time = time.time() - start_time
-        print(f"Time taken: {end_time}s")
+        logger.info(f"Docling conversion time: {end_time:.2f}s")
+        
         return conv_res
 
     def scan_markdown_structure(self, md_path: str):
@@ -418,8 +429,8 @@ class DoclingParser:
                 
                 figures, paper_ir = self.extract_figures(paper_ir, paper_id)
                 logger.info("Extraction complete....")
-                for i in figures:
-                    print(f"Paper: {i['paper_id'] } Section: {i['section']} Fig: {i['figure_id']}")
+                # for i in figures:
+                #     logger.debug(f"Paper: {i['paper_id'] } Section: {i['section']} Fig: {i['figure_id']}")
                 self.insert_figures(figures, db)
             logger.info(f"Cleaned Paper IR generated: {paper_ir.keys()}....")
             title, _ = next(iter(paper_ir.items())) 
@@ -440,7 +451,7 @@ class DoclingParser:
                 sec_type = "section"
                 logger.info(f"Section: {t}....")
                 if i[0].isdigit():
-                    print(i.split(" ", 1)[0])
+                    # logger.debug(f"Subsection candidate: {i.split(' ', 1)[0]}")
                     sec, _ = i.split(" ", 1)
                     if sec[-1] == ".":
                         sec = sec[:-1]
