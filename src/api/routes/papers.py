@@ -10,9 +10,42 @@ import logging
 from src.db.sql_db import get_db, UserPaper, SessionLocal
 from src.api.schemas import PaperActionRequest
 from src.api.deps import get_job_manager
+from src.jobs.queue import get_queue, is_redis_available
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def enqueue_ingestion(paper_id: str, background_tasks=None) -> dict:
+    """
+    Enqueue a paper ingestion job via RQ.
+    Falls back to BackgroundTasks if Redis is unavailable.
+    
+    Returns dict with status and job_id if applicable.
+    """
+    queue = get_queue()
+    
+    if queue is not None:
+        # Use RQ
+        from src.jobs.ingestion import ingest_paper_task
+        job = queue.enqueue(
+            ingest_paper_task,
+            paper_id,
+            job_timeout="30m",  # 30 min timeout for large PDFs
+            retry=3,  # Retry up to 3 times on failure
+        )
+        logger.info(f"Enqueued ingestion job {job.id} for paper {paper_id}")
+        return {"queued": True, "job_id": job.id, "method": "rq"}
+    elif background_tasks is not None:
+        # Fallback to FastAPI BackgroundTasks
+        logger.warning("Redis unavailable, falling back to BackgroundTasks")
+        background_tasks.add_task(background_ingest_paper, paper_id)
+        return {"queued": True, "job_id": None, "method": "background_tasks"}
+    else:
+        # No queue available, run synchronously (not recommended)
+        logger.warning("No queue available, running ingestion synchronously")
+        background_ingest_paper(paper_id)
+        return {"queued": False, "job_id": None, "method": "sync"}
 
 # --- Lazy Imports / Helper Functions ---
 
@@ -504,6 +537,32 @@ def get_active_jobs(
 ):
     """Get all active ingestion jobs from the manager."""
     return job_manager.get_all_jobs()
+
+
+@router.get("/ingestion/rq-status")
+def get_rq_status():
+    """
+    Get RQ job queue status.
+    Returns info about Redis availability and queue stats.
+    """
+    from src.jobs.queue import is_redis_available, get_queue
+    
+    if not is_redis_available():
+        return {
+            "redis_available": False,
+            "fallback_mode": "background_tasks",
+            "message": "Redis unavailable, using FastAPI BackgroundTasks"
+        }
+    
+    queue = get_queue()
+    return {
+        "redis_available": True,
+        "queue_name": queue.name,
+        "job_count": len(queue),
+        "failed_count": len(queue.failed_job_registry),
+    }
+
+
 @router.get("/insights/{paper_id}")
 @router.get("/insights/{paper_id}")
 async def get_paper_insights(paper_id: str, db: Session = Depends(get_db)):

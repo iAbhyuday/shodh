@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     DOCLING_VLM_API_KEY: str | None = None
     DOCLING_VLM_PROMPT: str = "Convert this page to markdown."
 
+    # Job Queue (Redis)
+    REDIS_URL: str = "redis://localhost:6379/0"
+
     # CHROMA_PERSIST_PATH is removed in favor of VECTOR_DB_PATH
 
     model_config = {
