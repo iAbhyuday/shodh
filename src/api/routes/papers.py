@@ -440,16 +440,15 @@ def toggle_save(action: PaperActionRequest, background_tasks: BackgroundTasks, d
     db.commit()
     
     # Trigger ingestion if saving (and strictly if newly saved or re-saved)
-    # user requested to remove this trigger
-    # if paper.is_saved:
-    #     # Check if already ingested to avoid re-running
-    #     if paper.ingestion_status != "completed":
-    #         # Set initial ingestion status
-    #         paper.ingestion_status = "pending"
-    #         db.commit()
-    #         background_tasks.add_task(background_ingest_paper, action.paper_id)
-    #     else:
-    #         print(f"Paper {action.paper_id} already ingested. Skipping background task.")
+    if paper.is_saved:
+        # Check if already ingested to avoid re-running
+        if paper.ingestion_status != "completed":
+            # Set initial ingestion status
+            paper.ingestion_status = "pending"
+            db.commit()
+            enqueue_ingestion(action.paper_id, background_tasks)
+        else:
+            logger.info(f"Paper {action.paper_id} already ingested. Skipping background task.")
         
     return {
         "status": "success", 
