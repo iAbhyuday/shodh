@@ -9,6 +9,7 @@ import logging
 
 from src.db.sql_db import get_db, UserPaper, SessionLocal
 from src.api.schemas import PaperActionRequest
+from src.api.deps import get_job_manager
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -145,9 +146,10 @@ def background_ingest_paper(paper_id: str):
     finally:
         db.close()
 
-    # Job Manager: Start
-    from src.services.ingestion_manager import job_manager
+    # Job Manager: Start (using dependency to get singleton)
+    from src.api.deps import get_job_manager
     import time
+    job_manager = get_job_manager()
 
     # Fetch title for better UX
     db = SessionLocal()
@@ -379,6 +381,7 @@ def toggle_save(action: PaperActionRequest, background_tasks: BackgroundTasks, d
             published_date=action.published_date,
             github_url=action.github_url,
             project_page=action.project_page,
+            thumbnail=action.thumbnail,
             mindmap_json=action.mindmap_json,
             is_saved=True
         )
@@ -397,6 +400,7 @@ def toggle_save(action: PaperActionRequest, background_tasks: BackgroundTasks, d
             paper.published_date = action.published_date or paper.published_date
             paper.github_url = action.github_url or paper.github_url
             paper.project_page = action.project_page or paper.project_page
+            paper.thumbnail = action.thumbnail or paper.thumbnail
             if action.mindmap_json:
                 paper.mindmap_json = action.mindmap_json
         
@@ -440,6 +444,7 @@ def get_saved_papers(db: Session = Depends(get_db)):
             "is_saved": True,
             "github_url": p.github_url,
             "project_page": p.project_page,
+            "thumbnail": p.thumbnail,
             "project_ids": [proj.id for proj in p.projects],
             "metrics": {
                  "tags": [] # We don't store tags in SQL currently
@@ -468,6 +473,7 @@ def get_favorite_papers(db: Session = Depends(get_db)):
             "is_saved": p.is_saved,
             "github_url": p.github_url,
             "project_page": p.project_page,
+            "thumbnail": p.thumbnail,
             "project_ids": [proj.id for proj in p.projects],
             "metrics": {
                  "tags": []
@@ -493,9 +499,10 @@ def get_ingestion_status(paper_id: str, db: Session = Depends(get_db)):
     }
 
 @router.get("/ingestion/jobs")
-def get_active_jobs():
+def get_active_jobs(
+    job_manager = Depends(get_job_manager)
+):
     """Get all active ingestion jobs from the manager."""
-    from src.services.ingestion_manager import job_manager
     return job_manager.get_all_jobs()
 @router.get("/insights/{paper_id}")
 @router.get("/insights/{paper_id}")

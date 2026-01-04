@@ -55,6 +55,3 @@ class VectorStore:
         Get all documents (for debugging/listing).
         """
         return self.collection.get()
-
-# Singleton instance
-vector_store = VectorStore()

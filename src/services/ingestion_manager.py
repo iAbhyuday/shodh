@@ -152,6 +152,3 @@ class IngestionJobManager:
         with self._lock:
             if paper_id in self.active_jobs:
                 del self.active_jobs[paper_id]
-
-# Singleton accessor
-job_manager = IngestionJobManager.get_instance()
