@@ -13,7 +13,13 @@ init_db()
 from fastapi.staticfiles import StaticFiles
 import os
 
-app = FastAPI()
+app = FastAPI(
+    title="Shodh API",
+    description="AI-powered research assistant API for paper discovery, analysis, and synthesis",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
 # Ensure PDF directory exists
 PDF_DIR = "data/pdfs"
@@ -37,6 +43,23 @@ app.include_router(ideas.router, prefix="/api", tags=["ideas"])
 app.include_router(projects.router, prefix="/api", tags=["projects"])
 app.include_router(settings.router, prefix="/api", tags=["settings"]) # Hot reload trigger
 
+@app.middleware("http")
+async def log_requests(request, call_next):
+    """Basic request logging middleware."""
+    import time
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    logger.info(f"{request.method} {request.url.path} - {response.status_code} - {process_time:.3f}s")
+    return response
+
+
 @app.get("/")
 def read_root():
     return {"message": "Welcome to Shodh"}
+
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for monitoring."""
+    return {"status": "healthy", "service": "shodh-api"}

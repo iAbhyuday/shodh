@@ -147,12 +147,6 @@ class IngestionJobManager:
         with self._lock:
             return self.active_jobs.get(paper_id)
 
-    def get_all_jobs(self) -> List[Dict]:
-        """Return all tracked jobs (active and recently completed)."""
-        with self._lock:
-            # Sort by start time desc
-            return sorted(self.active_jobs.values(), key=lambda x: x['start_time'], reverse=True)
-
     def clear_job(self, paper_id: str):
         """Remove a job from tracking (e.g. after user dismisses notification)."""
         with self._lock:
