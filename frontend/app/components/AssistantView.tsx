@@ -1,6 +1,10 @@
 import React from 'react';
 import { Plus, ArrowLeft, MessageSquare, Quote, Loader2, Send } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import remarkGfm from 'remark-gfm';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 
 type Paper = {
     id: string;
@@ -25,6 +29,7 @@ interface Message {
         score: number;
         section_title?: string;
         page_number?: number;
+        summary?: string;
     }[];
 }
 
@@ -139,9 +144,9 @@ const AssistantView: React.FC<AssistantViewProps> = ({
                             {[...chatMessages].reverse().map((msg, idx) => (
                                 <div
                                     key={idx}
-                                    className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'} mb-6`}
+                                    className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'} mb-8`}
                                 >
-                                    <div className={`flex gap-3 max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                                    <div className={`flex gap-4 max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                                         {/* Avatar */}
                                         <div className="flex-shrink-0 mt-1">
                                             {msg.role === 'user' ? (
@@ -153,47 +158,106 @@ const AssistantView: React.FC<AssistantViewProps> = ({
                                             )}
                                         </div>
 
-                                        <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-[90%]`}>
+                                        <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-full`}>
                                             <div
                                                 className={`${msg.role === 'user'
-                                                    ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-5 py-3 shadow-lg break-all overflow-hidden'
-                                                    : 'text-gray-200 pl-4 border-l-2 border-indigo-500/50 break-all overflow-hidden'
+                                                    ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-6 py-4 shadow-lg break-words whitespace-pre-wrap'
+                                                    : 'text-gray-200 pl-4 border-l-2 border-indigo-500/50 break-words w-full'
                                                     }`}
                                             >
                                                 {msg.role === 'user' ? (
-                                                    <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                                                    <p className="leading-relaxed">{msg.content}</p>
                                                 ) : (
-                                                    <div className="prose prose-invert prose-p:leading-loose prose-p:mb-4 prose-headings:text-gray-100 prose-headings:font-semibold prose-strong:text-white prose-ul:my-4 prose-li:my-1 max-w-none">
-                                                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                                                    <div className="prose prose-invert prose-p:leading-loose prose-p:mb-4 prose-headings:text-gray-100 prose-headings:font-semibold prose-strong:text-white prose-ul:my-4 prose-li:my-1 max-w-none break-words">
+                                                        {/* Attempt to inject inline citation markers if they exist in content, otherwise reliance on Sources block */}
+                                                        <ReactMarkdown
+                                                            remarkPlugins={[remarkMath, remarkGfm]}
+                                                            rehypePlugins={[rehypeKatex]}
+                                                            components={{
+                                                                a: ({ node, ...props }) => {
+                                                                    const href = props.href || '';
+
+                                                                    // Handle grouped citations
+                                                                    if (href.startsWith('#citation-group-')) {
+                                                                        const indices = href.replace('#citation-group-', '').split('-').map(i => parseInt(i) - 1);
+                                                                        const citations = indices.map(i => msg.citations?.[i]).filter(Boolean);
+
+                                                                        if (citations.length === 0) return null;
+
+                                                                        return (
+                                                                            <span className="relative inline-block ml-1 group align-baseline">
+                                                                                <span className="cursor-help px-1 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 transition-colors inline-flex items-center justify-center mx-0.5 align-top mt-0.5 h-4 w-auto min-w-[16px]">
+                                                                                    <Quote className="w-2.5 h-2.5" />
+                                                                                    <span className="ml-0.5 text-[8px] opacity-70">{citations.length}</span>
+                                                                                </span>
+                                                                                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-96 max-h-80 overflow-y-auto customized-scrollbar p-3 bg-[#1A1A1A] border border-white/10 rounded-xl shadow-2xl z-50 text-xs text-gray-300 opacity-0 group-hover:opacity-100 invisible group-hover:visible transition-opacity whitespace-normal backdrop-blur-xl flex flex-col gap-3">
+                                                                                    {/* Bridge to prevent hover loss */}
+                                                                                    <span className="absolute -bottom-2 left-0 w-full h-2 bg-transparent" />
+                                                                                    {citations.map((citation, idx) => (
+                                                                                        <span key={idx} className="block pb-2 border-b border-white/5 last:border-0 last:pb-0">
+                                                                                            <span className="block font-bold text-indigo-400 mb-1 tracking-wide uppercase text-[10px]">
+                                                                                                {citation?.section} <span className="text-gray-500 ml-1">[{indices[idx] + 1}]</span>
+                                                                                            </span>
+                                                                                            <span className="leading-relaxed">
+                                                                                                {citation?.summary ? (
+                                                                                                    <span className="text-gray-300 italic">{citation.summary}</span>
+                                                                                                ) : (
+                                                                                                    <span>{citation?.content.slice(0, 400)}...</span>
+                                                                                                )}
+                                                                                            </span>
+                                                                                        </span>
+                                                                                    ))}
+                                                                                </span>
+                                                                            </span>
+                                                                        );
+                                                                    }
+
+                                                                    if (href.startsWith('#citation-')) {
+                                                                        const index = parseInt(href.split('-')[1]) - 1;
+                                                                        const citation = msg.citations?.[index];
+                                                                        return (
+                                                                            <span className="relative inline-block ml-1 group align-baseline">
+                                                                                <span className="cursor-help px-1 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 transition-colors inline-flex items-center justify-center mx-0.5 align-top mt-0.5 h-4 w-4">
+                                                                                    <Quote className="w-2.5 h-2.5" />
+                                                                                </span>
+                                                                                {citation && (
+                                                                                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-80 p-3 bg-[#1A1A1A] border border-white/10 rounded-xl shadow-2xl z-50 text-xs text-gray-300 opacity-0 group-hover:opacity-100 invisible group-hover:visible transition-opacity whitespace-normal backdrop-blur-xl">
+                                                                                        {/* Bridge to prevent hover loss */}
+                                                                                        <span className="absolute -bottom-2 left-0 w-full h-2 bg-transparent" />
+                                                                                        <span className="block font-bold text-indigo-400 mb-1 tracking-wide uppercase text-[10px]">{citation.section}</span>
+                                                                                        <span className="leading-relaxed">
+                                                                                            {citation.summary ? (
+                                                                                                <span className="text-gray-300 italic">{citation.summary}</span>
+                                                                                            ) : (
+                                                                                                <span>{citation.content.slice(0, 600)}...</span>
+                                                                                            )}
+                                                                                        </span>
+                                                                                    </span>
+                                                                                )}
+                                                                            </span>
+                                                                        );
+                                                                    }
+                                                                    return <a className="text-indigo-400 underline cursor-pointer hover:text-indigo-300 transition-colors" {...props} target="_blank" rel="noopener noreferrer" />;
+                                                                }
+                                                            }}
+                                                        >
+                                                            {msg.content
+                                                                .replace(/\\\[/g, '$$$')
+                                                                .replace(/\\\]/g, '$$$')
+                                                                .replace(/\\\(/g, '$')
+                                                                .replace(/\\\)/g, '$')
+                                                                .replace(/(\[\d+\](?:,\s*\[\d+\]|\s*\[\d+\])+)/g, (match: string) => {
+                                                                    const nums = match.match(/\d+/g)?.join('-') || '';
+                                                                    return `[citations](#citation-group-${nums})`;
+                                                                })
+                                                                .replace(/\[(\d+)\]/g, '[$1](#citation-$1)')
+                                                            }
+                                                        </ReactMarkdown>
                                                     </div>
                                                 )}
                                             </div>
 
-                                            {/* Citations (Only for Assistant) */}
-                                            {msg.role === 'assistant' && msg.citations && msg.citations.length > 0 && (
-                                                <div className="mt-4 pt-3 border-t border-white/5 w-full">
-                                                    <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-2 uppercase tracking-wide">
-                                                        <Quote className="w-3 h-3" />
-                                                        Sources
-                                                    </p>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {msg.citations.slice(0, 3).map((cit, i) => (
-                                                            <div key={i} className="flex-1 min-w-[200px] p-2 bg-neutral-800/50 rounded-lg border border-white/5 text-xs hover:bg-neutral-800 transition-colors">
-                                                                <div className="flex justify-between items-center">
-                                                                    <span className="font-bold text-blue-400 text-[10px] uppercase tracking-wider truncate max-w-[150px]">
-                                                                        {cit.section}
-                                                                    </span>
-                                                                    {cit.page_number && (
-                                                                        <span className="bg-white/10 px-1.5 py-0.5 rounded text-[9px] text-gray-400 ml-2 whitespace-nowrap">
-                                                                            P. {cit.page_number}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
+                                            {/* Citations displayed inline via chips */}
                                         </div>
                                     </div>
                                 </div>

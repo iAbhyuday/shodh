@@ -48,8 +48,6 @@ class Section:
     content: str
     section_type: str
     section: Optional[str] = None
-    figures: Optional[List[Figure]] = None
-
 
 
 @dataclass
@@ -412,7 +410,7 @@ class DoclingParser:
             result = self._docling_parse(pdf_path)
             out_path = parent.joinpath(f"{pdf_path.stem}.md")
             result.document.save_as_markdown(parent.joinpath(f"{pdf_path.stem}.md"), image_mode=ImageRefMode.EMBEDDED)
-            logger.info(f"parsed md save at: {parent.joinpath(f"{pdf_path.stem}.md")}....")
+            logger.info(f"parsed md save at: {parent.joinpath(f'{pdf_path.stem}.md')}....")
             paper_ir = self.scan_markdown_structure(out_path)
             structure = "\n".join(list(paper_ir.keys()))
             # Create local session for this parsing task
@@ -438,8 +436,6 @@ class DoclingParser:
             del paper_ir[title]
             abs = paper_ir["abstract"]["content"] if "abstract" in paper_ir else ""
             logger.info(f"Abstract: {abs[:30]}....")
-            # intro = paper_ir["introduction"] if "introdiction" in paper_ir else ""
-            # logger.info(f"Intro: {intro[:20]}....")
             references = paper_ir["references"] if "references" in paper_ir else []
             logger.info(f"references: {references[:4]}....")
             sections = []
@@ -463,11 +459,7 @@ class DoclingParser:
                         title=t.strip(),
                         content=paper_ir[i]["content"],
                         section_type=sec_type,
-                        section=sec,
-                        figures=[Figure(
-                            id=f["figure_id"],
-                            caption=f["caption"]
-                        ) for f in paper_ir[i]["figs"]]
+                        section=sec
                     )
                 )
             logger.info("Returning document.....")

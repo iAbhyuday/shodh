@@ -18,35 +18,44 @@ class PaperRAGTool(BaseTool):
     args_schema: Type[BaseModel] = PaperSearchInput
 
     # Paper-specific config (set at runtime)
-    paper_id: str = ""
+    paper_ids: list[str] = []
 
-    def __init__(self, paper_id: str, **kwargs):
+    def __init__(self, paper_ids: str | list[str], **kwargs):
         super().__init__(**kwargs)
-        self.paper_id = paper_id
+        if isinstance(paper_ids, str):
+            self.paper_ids = [paper_ids]
+        else:
+            self.paper_ids = paper_ids
 
     def _run(self, query: str) -> str:
         """
-        Execute the paper search.
-        Returns formatted context chunks from the paper.
+        Execute the search across provided papers.
+        Returns formatted context chunks from the collection of papers.
         """
         retriever = PaperRetriever()
         results = retriever.query(
             query_text=query,
-            paper_id=self.paper_id,
-            top_k=5
+            paper_id=self.paper_ids,
+            top_k=8 if len(self.paper_ids) > 1 else 5
         )
         if not results:
             return "No relevant information found in the paper for this query."
         # Format results as context
         context_parts = []
         for chunk in results:
-            paper_id = chunk['metadata'].get('paper_id', 'unknown').upper()
-            section_title = chunk['metadata'].get('section', '')
+            metadata = chunk['metadata']
+            paper_id = metadata.get('paper_id', 'Unknown Paper')
+            section_title = metadata.get('section', 'General')
+            figures = metadata.get('figures', 'None')
             content = chunk['content']
-            figures = chunk['metadata'].get('figures', '')
-            header = f"[Paper: {paper_id}]"
-            if section_title:
-                header += f"Section: {section_title}"
-            context_parts.append(f"""{header}:\n{content} \n
-                                  relevant figures: {figures}\n""")
+            
+            # Structured Markdown Block
+            formatted_chunk = (
+                f"### Source: {paper_id}\n"
+                f"**Section:** {section_title}\n"
+                f"**Relevant Figures:** {figures}\n"
+                f"\n{content}"
+            )
+            context_parts.append(formatted_chunk)
+            
         return "\n\n---\n\n".join(context_parts)

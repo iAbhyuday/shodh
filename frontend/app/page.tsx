@@ -6,9 +6,13 @@ import ReactMarkdown from 'react-markdown';
 import DiscoverView from './components/DiscoverView';
 import LibraryView from './components/LibraryView';
 import ProjectView from './components/ProjectView';
-import ReaderPanel from './components/ReaderPanel';
 import AssistantView from './components/AssistantView';
+
 import SettingsModal from './components/SettingsModal';
+import NotificationBell from './components/NotificationBell';
+import QuickReadPanel from './components/QuickReadPanel';
+import { ShodhLogo } from './components/ShodhLogo';
+import { useRouter } from 'next/navigation';
 
 // API Base URL
 const API_URL = "http://localhost:8000/api";
@@ -17,7 +21,7 @@ type Paper = {
   id: string;
   title: string;
   abstract: string;
-  source: string;
+  source?: string;
   metrics: {
     tags?: string[];
     core_idea?: string;
@@ -45,6 +49,8 @@ type Project = {
 };
 
 export default function Home() {
+  const router = useRouter();  // Next.js Router for navigation
+
   /* State */
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -116,8 +122,9 @@ export default function Home() {
   }[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
 
-  // Quick Study Panel state
-  const [studyPanelPaper, setStudyPanelPaper] = useState<Paper | null>(null);
+  // Quick Study Panel state (Renamed from studyPanelPaper for clarity)
+  const [quickReadPaper, setQuickReadPaper] = useState<Paper | null>(null);
+  const [isQuickReadOpen, setIsQuickReadOpen] = useState(false);
   const [studyInsights, setStudyInsights] = useState<string>("");
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [activeProjectMenu, setActiveProjectMenu] = useState<string | null>(null); // paper.id
@@ -136,6 +143,24 @@ export default function Home() {
     } finally {
       setIsLoadingInsights(false);
     }
+  };
+
+  const handleQuickRead = (paper: Paper) => {
+    setQuickReadPaper(paper);
+    setStudyInsights("");
+
+    // If it was already open with another paper, just switch data. 
+    // If closed, open it.
+    // For proper slide-in on first mount, valid concern, but let's try direct set first.
+    // If it wasn't rendered yet (quickReadPaper null), it will mount now.
+    // To ensure slide-in, we might need a tick? 
+    // Let's rely on standard behavior first.
+    setIsQuickReadOpen(true);
+    fetchQuickInsights(paper.id);
+  };
+
+  const handleDeepRead = (paper: Paper) => {
+    router.push(`/paper/${paper.id}`);
   };
 
   // Projects state
@@ -333,50 +358,50 @@ export default function Home() {
     });
   }, [feed]);
 
-  // Poll ingestion status for papers that are being processed
+  // Poll ingestion manager for active jobs
   useEffect(() => {
-    const pollStatus = async () => {
-      const currentStatus = ingestionStatusRef.current;
-      const activeIngestions = Object.entries(currentStatus)
-        .filter(([_, info]) => ['pending', 'downloading', 'parsing', 'indexing', 'processing'].includes(info.status))
-        .map(([id]) => id);
+    const pollJobs = async () => {
+      try {
+        const res = await fetch(`${API_URL}/ingestion/jobs`);
+        if (res.ok) {
+          const jobs = await res.json();
+          setIngestionStatus(prev => {
+            const next = { ...prev };
+            let changed = false;
 
-      // Determine which papers to poll
-      const papersToPoll = activeIngestions;
-
-      if (papersToPoll.length === 0) return;
-
-      for (const paperId of papersToPoll) {
-        try {
-          const res = await fetch(`${API_URL}/ingestion-status/${paperId}?t=${Date.now()}`);
-          if (res.ok) {
-            const data = await res.json();
-            setIngestionStatus(prev => {
-              // Only update if status or count changed
-              if (prev[paperId]?.status === data.ingestion_status && prev[paperId]?.chunk_count === data.chunk_count) {
-                return prev;
+            // Update status from jobs
+            jobs.forEach((job: any) => {
+              const current = next[job.paper_id];
+              // If we have a newer status or progress
+              if (!current || current.status !== job.status || current.chunk_count !== job.progress) {
+                // Note: mapping progress to chunk_count generic field for now, 
+                // or we can add a progress field. Let's use status for now.
+                next[job.paper_id] = {
+                  status: job.status,
+                  // For backward compat with NotificationBell's specific checks
+                  // We might map specific steps to statuses if needed, but 'processing' is fine
+                  chunk_count: job.progress, // overloading chunk_count as progress % for now or chunks? 
+                  // The manager sends 0-100 progress. 
+                  title: job.title
+                };
+                changed = true;
               }
-              return {
-                ...prev,
-                [paperId]: {
-                  ...prev[paperId],
-                  status: data.ingestion_status || 'unknown',
-                  chunk_count: data.chunk_count,
-                  // Preserve title if we have it
-                  title: prev[paperId]?.title || feed.find(p => p.id === paperId)?.title
-                }
-              };
             });
-          }
-        } catch (e) {
-          console.error('Failed to poll status', e);
+
+            // Also remove completed jobs that are old? 
+            // For now, we trust the manager list.
+
+            return changed ? next : prev;
+          });
         }
+      } catch (e) {
+        console.error("Failed to poll jobs", e);
       }
     };
 
-    const interval = setInterval(pollStatus, 3000);
+    const interval = setInterval(pollJobs, 3000);
     return () => clearInterval(interval);
-  }, [activeView, feed]); // Stable dependencies
+  }, []);
 
   // Handle clicking outside to close project menu
   useEffect(() => {
@@ -566,12 +591,11 @@ export default function Home() {
     }
   };
 
-  // Start discussion with a paper
+  // Start discussion with a paper (Deprecated for single papers basically, now focused on Project Synthesis)
+  // For individual papers, we now use handleDeepRead -> /paper/[id]
   const startDiscussion = (paper: Paper) => {
-    setSelectedPaper(paper);
-    setChatMessages([]);
-    setChatInput('');
-    setActiveView('assistant');
+    // Legacy support or fallback
+    handleDeepRead(paper);
   };
 
   const handleSearch = (e: React.FormEvent) => {
@@ -823,93 +847,27 @@ export default function Home() {
     }
   };
 
-  const IngestionMonitor = () => {
-    const activeTasks = Object.entries(ingestionStatus)
-      .filter(([_, info]) => ['pending', 'downloading', 'parsing', 'indexing', 'processing'].includes(info.status))
-      .map(([id, info]) => ({ id, ...info }));
 
-    if (activeTasks.length === 0) return null;
-
-    return (
-      <div className="fixed bottom-6 right-6 z-[120] flex flex-col gap-3 max-w-sm">
-        {(() => {
-          const SHOW_LIMIT = 3;
-          // If we have more than limit, show limit-1 and a summary card
-          const shouldStack = activeTasks.length > SHOW_LIMIT;
-          const tasksToShow = shouldStack ? activeTasks.slice(0, SHOW_LIMIT - 1) : activeTasks;
-          const remaining = activeTasks.length - tasksToShow.length;
-
-          return (
-            <>
-              {tasksToShow.map((task) => (
-                <div key={task.id} className="bg-neutral-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl animate-in slide-in-from-right-10 duration-500">
-                  <div className="flex items-center gap-4">
-                    <div className="relative">
-                      <RefreshCw className="w-5 h-5 text-indigo-400 animate-spin" />
-                      <div className="absolute inset-0 bg-indigo-400/20 blur-lg animate-pulse" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-white truncate mb-1">
-                        {task.title || 'Unknown Paper'}
-                      </p>
-                      <div className="flex items-center justify-between text-[10px] uppercase tracking-widest font-bold">
-                        <span className="text-indigo-400 animate-pulse">{task.status}</span>
-                        {task.chunk_count ? (
-                          <span className="text-gray-500">{task.chunk_count} chunks</span>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-3 h-1 w-full bg-white/5 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-indigo-600 to-indigo-400 transition-all duration-1000 ease-in-out"
-                      style={{
-                        width: task.status === 'completed' ? '100%' :
-                          task.status === 'indexing' ? '85%' :
-                            task.status === 'parsing' ? '60%' :
-                              task.status === 'downloading' ? '30%' : '10%'
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-              {shouldStack && (
-                <div className="bg-neutral-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl animate-in slide-in-from-right-10 duration-500 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="bg-indigo-500/20 p-2 rounded-full">
-                      <RefreshCw className="w-4 h-4 text-indigo-400 animate-spin" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-white">
-                        Processing {remaining} more papers...
-                      </p>
-                      <p className="text-[10px] text-gray-500">Background ingestion active</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </>
-          );
-        })()}
-      </div>
-    );
-  };
 
   return (
     <div className="min-h-screen bg-black text-gray-100 font-sans">
       <header className="bg-black/80 backdrop-blur-md border-b border-white/10 sticky top-0 z-[100]">
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center space-x-2">
-            <BookOpen className="text-white w-6 h-6" />
+            <ShodhLogo className="w-6 h-6" />
             <h1 className="text-xl font-bold text-white">
               Shodh (शोध)
             </h1>
           </div>
-          <button onClick={() => fetchFeed()} className="p-2 hover:bg-neutral-800 rounded-full transition text-gray-400 hover:text-white" title="Refresh Feed">
-            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-          </button>
+          <div className="flex items-center gap-3">
+            <NotificationBell ingestionStatus={ingestionStatus} />
+            <button onClick={() => fetchFeed()} className="p-2 hover:bg-neutral-800 rounded-full transition text-gray-400 hover:text-white" title="Refresh Feed">
+              <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
       </header>
+
 
       {/* Sidebar Navigation */}
       {/* Sidebar Navigation */}
@@ -1049,7 +1007,8 @@ export default function Home() {
             loading={loading}
             error={error}
             feed={feed.filter((p) => (activeView === 'favourites' ? p.is_favorited : true))}
-            onStudy={(p) => setStudyPanelPaper(p)}
+            onQuickRead={handleQuickRead}
+            onDeepRead={handleDeepRead}
             onVisualize={visualize}
             onAddPaperToProject={(projId, paperId) => {
               const p = feed.find(p => p.id === paperId);
@@ -1118,6 +1077,9 @@ export default function Home() {
                 }}
                 onDeleteProject={deleteProject}
                 onFetchBookmarks={fetchBookmarks}
+                onQuickRead={handleQuickRead}
+                onDeepRead={handleDeepRead}
+                onVisualize={visualize}
               />
             ) : (
               <ProjectView
@@ -1126,10 +1088,8 @@ export default function Home() {
                 projectView={projectView}
                 setProjectView={setProjectView}
                 feed={feed}
-                onStudy={(p) => {
-                  setStudyPanelPaper(p);
-                  fetchQuickInsights(p.id);
-                }}
+                onQuickRead={handleQuickRead}
+                onDeepRead={handleDeepRead}
                 onVisualize={visualize}
                 onFetchConversations={fetchConversations}
                 conversations={conversations}
@@ -1217,34 +1177,24 @@ export default function Home() {
             </div>
           )
         }
-        {/* Reader Mode Side Drawer */}
-        <ReaderPanel
-          paper={studyPanelPaper}
-          onClose={() => setStudyPanelPaper(null)}
-          insights={studyInsights}
-          isLoading={isLoadingInsights}
-          ingestionStatus={ingestionStatus}
-          onOpenAssistant={(p) => {
-            setSelectedPaper(p);
-            setActiveView('assistant');
-            setStudyPanelPaper(null);
-          }}
-          isProjectView={!!selectedProject}
-          projects={projects}
-          activeProjectMenu={activeProjectMenu}
-          setActiveProjectMenu={setActiveProjectMenu}
-          onAddPaperToProject={addPaperToProject}
-          onCreateProject={() => {
-            setActiveView('bookmarks');
-            setIsCreatingProject(true);
-          }}
-        />
+
       </main>
-      <IngestionMonitor />
+
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
       />
+      {/* Quick Read Side Panel */}
+      {quickReadPaper && (
+        <QuickReadPanel
+          paper={quickReadPaper}
+          isOpen={isQuickReadOpen}
+          onClose={() => setIsQuickReadOpen(false)}
+          onDeepRead={handleDeepRead}
+          studyInsights={studyInsights}
+          isLoadingInsights={isLoadingInsights}
+        />
+      )}
     </div>
   );
 }

@@ -31,7 +31,7 @@ class LLMFactory:
                     model=model_name or settings.OLLAMA_MODEL,
                     base_url=settings.OLLAMA_BASE_URL,
                     temperature=0.7,
-                    request_timeout=120.0
+                    request_timeout=300.0
                 )
             elif provider == "openai":
                 from llama_index.llms.openai import OpenAI
@@ -141,8 +141,10 @@ class LLMFactory:
             )
         elif provider == "gemini":
             from crewai import LLM
+            # Clean model name for LiteLLM (strip 'models/' prefix if present)
+            clean_model = model_name.replace('models/', '')
             return LLM(
-                model=f"gemini/{model_name}",
+                model=f"gemini/{clean_model}",
                 api_key=settings.GEMINI_API_KEY,
                 temperature=0.1
             )

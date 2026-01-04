@@ -1,11 +1,11 @@
 import React from 'react';
-import { Plus, ChevronRight, Code, ExternalLink, Network, Trash2, Heart } from 'lucide-react';
+import { Plus, ChevronRight, Code, ExternalLink, Network, Trash2, Heart, BookOpen, Maximize2 } from 'lucide-react';
 
 type Paper = {
     id: string;
     title: string;
     abstract: string;
-    source: string;
+    source?: string;
     metrics: {
         tags?: string[];
         core_idea?: string;
@@ -32,7 +32,8 @@ type Project = {
 
 interface PaperCardProps {
     paper: Paper;
-    onStudy: (paper: Paper) => void;
+    onQuickRead: (paper: Paper) => void;
+    onDeepRead: (paper: Paper) => void;
     onVisualize?: (paper: Paper) => void;
     onAddPaperToProject?: (projectId: number, paperId: string) => void;
     projects?: Project[];
@@ -59,7 +60,8 @@ const isValidUrl = (url: string) => {
 
 const PaperCard: React.FC<PaperCardProps> = ({
     paper,
-    onStudy,
+    onQuickRead,
+    onDeepRead,
     onVisualize,
     onAddPaperToProject,
     projects = [],
@@ -119,7 +121,7 @@ const PaperCard: React.FC<PaperCardProps> = ({
 
             <div
                 className="p-6 relative cursor-pointer"
-                onClick={() => onStudy(paper)}
+                onClick={() => onQuickRead(paper)}
             >
                 {/* Header: Title */}
                 <div className="mb-4">
@@ -188,6 +190,18 @@ const PaperCard: React.FC<PaperCardProps> = ({
                                 <Heart className={`w-4 h-4 ${paper.is_favorited ? 'fill-current' : ''}`} />
                             </button>
                         )}
+                        {/* Deep Read Button (Primary Action) */}
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onDeepRead(paper);
+                            }}
+                            className="p-2 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 rounded-lg transition-colors"
+                            title="Deep Read"
+                        >
+                            <Maximize2 className="w-4 h-4" />
+                        </button>
+
                         {/* PDF Link */}
                         <a
                             href={paper.url}

@@ -8,6 +8,16 @@ from .docling_parser import PaperDocument
 
 logger = logging.getLogger(__name__)
 
+SUMMARY_EXTRACT_TEMPLATE = """\
+You are an experienced Deep Learning Researcher.
+Summarize the following content into a single, detailed paragraph associated with the section it belongs to.
+Capture the key technical details, architectural decisions, and empirical results.
+The summary should be self-contained and provide enough context for a reader to understand the core message of this chunk.
+
+Content:
+{context_str}
+
+Summary:"""
 
 class PaperIngestionPipeline:
     """
@@ -22,7 +32,8 @@ class PaperIngestionPipeline:
         collection_name: Optional[str] = None,
         chunk_size: int = 1024,
         chunk_overlap: int = 100,
-        chroma_persist_path: Optional[str] = None
+        chroma_persist_path: Optional[str] = None,
+        meta_extraction: Optional[bool] = False
     ):
         from src.core.config import get_settings
         settings = get_settings()
@@ -32,7 +43,7 @@ class PaperIngestionPipeline:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.chroma_persist_path = chroma_persist_path or settings.VECTOR_DB_PATH
-        
+        self.meta_extraction = meta_extraction
         self._pipeline = None
         self._vector_store = None
         
@@ -62,8 +73,38 @@ class PaperIngestionPipeline:
         from llama_index.core.ingestion import IngestionPipeline
         from llama_index.core.node_parser import MarkdownNodeParser, SentenceSplitter
         
-        return IngestionPipeline(
-            transformations=[
+        if self.meta_extraction:
+            from llama_index.core.extractors import (
+                SummaryExtractor,
+                QuestionsAnsweredExtractor,
+                TitleExtractor,
+                KeywordExtractor,
+            )
+            from src.ingestion.extractors import FigureExtractor
+            from src.core.llm_factory import LLMFactory
+            llm = LLMFactory.get_llama_index_llm()
+            transformations = [
+                # Step 1: Split by Markdown structure
+                MarkdownNodeParser(),
+                # Step 2: Split large chunks further if needed
+                SentenceSplitter(
+                    chunk_size=self.chunk_size,
+                    chunk_overlap=self.chunk_overlap
+                ),
+                # Step 3: Extract metadata
+                SummaryExtractor(
+                    llm=llm, 
+                    summaries=["prev", "self"],
+                    prompt_template=SUMMARY_EXTRACT_TEMPLATE
+                ),
+                QuestionsAnsweredExtractor(llm=llm, questions=2, embedding_only=True),
+                KeywordExtractor(llm=llm),
+                FigureExtractor(llm=llm),
+                # Step 3: Generate embeddings
+                self._get_embed_model()
+            ]
+        else:
+            transformations = [
                 # Step 1: Split by Markdown structure
                 MarkdownNodeParser(),
                 # Step 2: Split large chunks further if needed
@@ -72,8 +113,11 @@ class PaperIngestionPipeline:
                     chunk_overlap=self.chunk_overlap
                 ),
                 # Step 3: Generate embeddings
-                self._get_embed_model(),
-            ],
+                self._get_embed_model()
+            ]
+        
+        return IngestionPipeline(
+            transformations=transformations,
             vector_store=self._get_vector_store(),
         )
     
@@ -111,7 +155,7 @@ class PaperIngestionPipeline:
                         "paper_id": parsed_doc.paper_id,
                         "section": section.title,
                         "id_": section.section if section.section else "",
-                        "figures": json.dumps(list(map(lambda x:  asdict(x), section.figures)))
+                        "figures": {}
                     },
                     id_=f"{parsed_doc.paper_id}_section_{section.section}" if section.section else ""
                 )
@@ -148,7 +192,7 @@ class PaperIngestionPipeline:
         pipeline = self._build_pipeline()
         
         # Run pipeline - automatically stores in vector store
-        nodes = pipeline.run(documents=documents, show_progress=True)
+        nodes = pipeline.run(documents=documents, show_progress=True, num_workers=4)
         
         logger.info(f"Ingested {len(nodes)} nodes for {parsed_doc.paper_id}")
         return len(nodes)

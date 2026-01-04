@@ -1,5 +1,7 @@
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
+from fastapi.responses import StreamingResponse
+import os
 from sqlalchemy.orm import Session
 import datetime
 import requests
@@ -143,9 +145,39 @@ def background_ingest_paper(paper_id: str):
     finally:
         db.close()
 
+    # Job Manager: Start
+    from src.services.ingestion_manager import job_manager
+    import time
+
+    # Fetch title for better UX
+    db = SessionLocal()
+    paper_title = None
+    try:
+        p = db.query(UserPaper).filter(UserPaper.paper_id == paper_id).first()
+        if p:
+            paper_title = p.title
+    finally:
+        db.close()
+    
+    init_status = job_manager.add_job(paper_id, title=paper_title or f"Paper {paper_id}")
+    
+    # Wait if queued
+    while init_status == "queued":
+        time.sleep(2) # check every 2s
+        current_status = job_manager.get_job_status(paper_id)
+        if current_status != "queued":
+            break
+        # Optional: check global shutdown or timeout? active loop is fine for threads.
+        
+    # Double check if we are still good to go (e.g. not cancelled/failed while queuing)
+    if job_manager.get_job_status(paper_id) == "unknown":
+         logger.warning(f"Job {paper_id} disappeared from manager while queuing. Aborting.")
+         return
+
     try:
         # Update status to processing
         _update_status(paper_id, "downloading")
+        job_manager.update_job(paper_id, "processing", step="downloading", progress=10)
         
         # Step 1: Download PDF
         downloader = get_pdf_downloader()
@@ -154,6 +186,7 @@ def background_ingest_paper(paper_id: str):
         
         # Update status
         _update_status(paper_id, "parsing", pdf_path=str(pdf_path))
+        job_manager.update_job(paper_id, "processing", step="parsing", progress=40)
         
         # Step 2: Parse with Docling
         parser = get_docling_parser()
@@ -162,6 +195,7 @@ def background_ingest_paper(paper_id: str):
         
         # Update status
         _update_status(paper_id, "indexing")
+        job_manager.update_job(paper_id, "processing", step="indexing", progress=70)
         
         # Step 3: Index with LlamaIndex
         pipeline = get_ingestion_pipeline()
@@ -170,12 +204,31 @@ def background_ingest_paper(paper_id: str):
         
         # Update final status
         _update_status(paper_id, "completed", chunk_count=chunk_count)
+        job_manager.update_job(paper_id, "completed", step="done", progress=100)
         
         logger.info(f"Ingestion completed for {paper_id}")
         
     except Exception as e:
-        logger.error(f"Ingestion failed for {paper_id}: {e}")
-        _update_status(paper_id, "failed", error_message=str(e))
+        import traceback
+        logger.error(f"Ingestion failed for {paper_id}: {type(e).__name__}: {e}")
+        logger.error(traceback.format_exc())
+        
+        job_manager.update_job(paper_id, "failed", error=str(e))
+        
+        # Rollback: Delete the paper record from DB so it's not "Saved" with broken state
+        db = SessionLocal()
+        try:
+            paper_to_delete = db.query(UserPaper).filter(UserPaper.paper_id == paper_id).first()
+            if paper_to_delete:
+                db.delete(paper_to_delete)
+                db.commit()
+                logger.info(f"Deleted paper {paper_id} record due to ingestion failure.")
+            else:
+                logger.warning(f"Paper {paper_id} not found for deletion on failure.")
+        except Exception as delete_error:
+            logger.error(f"Failed to delete paper record for {paper_id}: {delete_error}")
+        finally:
+            db.close()
 
 # --- Endpoints ---
 
@@ -320,6 +373,7 @@ def toggle_save(action: PaperActionRequest, background_tasks: BackgroundTasks, d
             title=action.title,
             summary=action.summary,
             notes=action.notes,
+            user_notes=action.user_notes,
             authors=action.authors,
             url=action.url,
             published_date=action.published_date,
@@ -337,6 +391,7 @@ def toggle_save(action: PaperActionRequest, background_tasks: BackgroundTasks, d
             paper.title = action.title or paper.title
             paper.summary = action.summary or paper.summary
             paper.notes = action.notes or paper.notes
+            paper.user_notes = action.user_notes or paper.user_notes
             paper.authors = action.authors or paper.authors
             paper.url = action.url or paper.url
             paper.published_date = action.published_date or paper.published_date
@@ -348,15 +403,16 @@ def toggle_save(action: PaperActionRequest, background_tasks: BackgroundTasks, d
     db.commit()
     
     # Trigger ingestion if saving (and strictly if newly saved or re-saved)
-    if paper.is_saved:
-        # Check if already ingested to avoid re-running
-        if paper.ingestion_status != "completed":
-            # Set initial ingestion status
-            paper.ingestion_status = "pending"
-            db.commit()
-            background_tasks.add_task(background_ingest_paper, action.paper_id)
-        else:
-            print(f"Paper {action.paper_id} already ingested. Skipping background task.")
+    # user requested to remove this trigger
+    # if paper.is_saved:
+    #     # Check if already ingested to avoid re-running
+    #     if paper.ingestion_status != "completed":
+    #         # Set initial ingestion status
+    #         paper.ingestion_status = "pending"
+    #         db.commit()
+    #         background_tasks.add_task(background_ingest_paper, action.paper_id)
+    #     else:
+    #         print(f"Paper {action.paper_id} already ingested. Skipping background task.")
         
     return {
         "status": "success", 
@@ -387,7 +443,8 @@ def get_saved_papers(db: Session = Depends(get_db)):
             "project_ids": [proj.id for proj in p.projects],
             "metrics": {
                  "tags": [] # We don't store tags in SQL currently
-            }
+            },
+            "ingestion_status": p.ingestion_status
         })
     return result
 
@@ -434,53 +491,21 @@ def get_ingestion_status(paper_id: str, db: Session = Depends(get_db)):
         "ingested_at": paper.ingested_at.isoformat() if paper.ingested_at else None,
         "error_message": paper.error_message
     }
+
+@router.get("/ingestion/jobs")
+def get_active_jobs():
+    """Get all active ingestion jobs from the manager."""
+    from src.services.ingestion_manager import job_manager
+    return job_manager.get_all_jobs()
+@router.get("/insights/{paper_id}")
 @router.get("/insights/{paper_id}")
 async def get_paper_insights(paper_id: str, db: Session = Depends(get_db)):
     """
     Generate quick insights from the paper's abstract (summary).
     This provides instant value without waiting for PDF ingestion.
     """
-    paper = db.query(UserPaper).filter(UserPaper.paper_id == paper_id).first()
+    paper = await get_or_fetch_paper_metadata(paper_id, db)
     
-    if not paper:
-        # If not in DB, try to fetch from ArXiv
-        logger.info(f"Paper {paper_id} not found in DB. Fetching from ArXiv...")
-        try:
-            import xml.etree.ElementTree as ET
-            arxiv_url = f"http://export.arxiv.org/api/query?id_list={paper_id}"
-            response = requests.get(arxiv_url)
-            response.raise_for_status()
-            
-            # Parse ArXiv XML
-            root = ET.fromstring(response.text)
-            namespace = {'atom': 'http://www.w3.org/2005/Atom'}
-            entry = root.find('atom:entry', namespace)
-            
-            if entry:
-                title = entry.find('atom:title', namespace).text.strip()
-                summary = entry.find('atom:summary', namespace).text.strip()
-                authors = ", ".join([a.find('atom:name', namespace).text for a in entry.findall('atom:author', namespace)])
-                published = entry.find('atom:published', namespace).text
-                
-                # Save to DB
-                paper = UserPaper(
-                    paper_id=paper_id,
-                    title=title,
-                    authors=authors,
-                    summary=summary,
-                    url=f"https://arxiv.org/abs/{paper_id}",
-                    published_date=published[:10],
-                    ingestion_status="pending"
-                )
-                db.add(paper)
-                db.commit()
-                db.refresh(paper)
-            else:
-                raise HTTPException(status_code=404, detail="Paper not found on ArXiv.")
-        except Exception as e:
-            logger.error(f"Failed to fetch paper {paper_id} from ArXiv: {e}")
-            raise HTTPException(status_code=404, detail=f"Paper not found and ArXiv fetch failed: {str(e)}")
-
     # Return cached insights if available
     if paper.notes:
         return {"insights": paper.notes}
@@ -535,3 +560,170 @@ async def get_paper_insights(paper_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error generating insights: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to generate insights: {str(e)}")
+
+async def get_or_fetch_paper_metadata(paper_id: str, db: Session) -> UserPaper:
+    """Helper to get paper from DB or fetch metadata from ArXiv."""
+    paper = db.query(UserPaper).filter(UserPaper.paper_id == paper_id).first()
+    
+    if not paper:
+        # If not in DB, try to fetch from ArXiv
+        logger.info(f"Paper {paper_id} not found in DB. Fetching from ArXiv...")
+        try:
+            import xml.etree.ElementTree as ET
+            arxiv_url = f"http://export.arxiv.org/api/query?id_list={paper_id}"
+            response = requests.get(arxiv_url)
+            response.raise_for_status()
+            
+            # Parse ArXiv XML
+            root = ET.fromstring(response.text)
+            namespace = {'atom': 'http://www.w3.org/2005/Atom'}
+            entry = root.find('atom:entry', namespace)
+            
+            if entry:
+                title = entry.find('atom:title', namespace).text.strip()
+                summary = entry.find('atom:summary', namespace).text.strip()
+                authors = ", ".join([a.find('atom:name', namespace).text for a in entry.findall('atom:author', namespace)])
+                published = entry.find('atom:published', namespace).text
+                
+                # Save to DB
+                paper = UserPaper(
+                    paper_id=paper_id,
+                    title=title,
+                    authors=authors,
+                    summary=summary,
+                    url=f"https://arxiv.org/abs/{paper_id}",
+                    published_date=published[:10],
+                    ingestion_status="pending"
+                )
+                db.add(paper)
+                db.commit()
+                db.refresh(paper)
+            else:
+                raise HTTPException(status_code=404, detail="Paper not found on ArXiv.")
+        except Exception as e:
+            logger.error(f"Failed to fetch paper {paper_id} from ArXiv: {e}")
+            raise HTTPException(status_code=404, detail=f"Paper not found and ArXiv fetch failed: {str(e)}")
+            
+    return paper
+
+@router.get("/paper/{paper_id}/metadata")
+async def get_paper_metadata(paper_id: str, db: Session = Depends(get_db)):
+    """
+    Get full paper metadata. 
+    Fetches from ArXiv if not in DB.
+    """
+    try:
+        paper = await get_or_fetch_paper_metadata(paper_id, db)
+        return {
+            "id": paper.paper_id,
+            "title": paper.title,
+            "abstract": paper.summary,
+            "authors": paper.authors,
+            "published_date": paper.published_date,
+            "url": paper.url,
+            "ingestion_status": paper.ingestion_status,
+            "user_notes": paper.user_notes,
+            "notes": paper.notes
+        }
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error getting metadata for {paper_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/insights/{paper_id}")
+async def get_paper_insights(paper_id: str, db: Session = Depends(get_db)):
+    """
+    Generate quick insights from the paper's abstract (summary).
+    This provides instant value without waiting for PDF ingestion.
+    """
+    paper = await get_or_fetch_paper_metadata(paper_id, db)
+    
+    # Return cached insights if available
+    if paper.notes:
+        return {"insights": paper.notes}
+
+    # Generate insights using LLM from abstract
+    if not paper.summary or paper.summary == "No summary available.":
+        raise HTTPException(status_code=400, detail="Abstract not available for this paper.")
+
+    try:
+        from src.core.llm_factory import LLMFactory
+        llm = LLMFactory.get_llama_index_llm()
+        
+        prompt = f"""
+        Paper Title: {paper.title}
+        Abstract: {paper.summary}
+        
+        You are a research assistant for an AI scientist. Provide a comprehensive, high-level structured overview of this paper based on its abstract.
+        
+        Follow this strict Markdown format:
+
+        ### 📋 Summary
+        (A 2-3 sentence high-level summary of the paper's core contribution)
+
+        ### 💡 Key Insights
+        - (Insight 1)
+        - (Insight 2)
+        - (Insight 3)
+
+        ### 🔬 Results & Methodology
+        (Describe the main approach and performance gains mentioned)
+
+        ### 📊 Figures & Architecture (Potential)
+        (Infer what key figures or architectural components would be present based on the abstract)
+
+        ### ⚠️ Limitations
+        (Mention any constraints or future work noted)
+
+        ### 🔗 Related Work
+        (Briefly mention which sub-fields or prior methods this relates to)
+
+        Focus on methodology, novel architecture, or performance gains. Keep it professional and technical.
+        """
+        
+        response = await llm.acomplete(prompt)
+        insights = str(response)
+        
+        # Save to DB
+        paper.notes = insights
+        db.commit()
+        
+        return {"insights": insights}
+    except Exception as e:
+        logger.error(f"Error generating insights: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate insights: {str(e)}")
+
+@router.get("/paper/{paper_id}/pdf")
+def get_paper_pdf(paper_id: str):
+    """
+    Proxy endpoint to serve PDF.
+    1. Tries to serve from local 'data/pdfs/{paper_id}.pdf' if successfully ingested/saved.
+    2. If not found, streams directly from ArXiv 'https://arxiv.org/pdf/{paper_id}.pdf'.
+    This solves CORS issues when using react-pdf.
+    """
+    # Check if we have a local copy from ingestion
+    pdf_path = f"data/pdfs/{paper_id}.pdf"
+    
+    if os.path.exists(pdf_path):
+        logger.info(f"Serving local PDF for {paper_id}")
+        def iterfile():
+            with open(pdf_path, mode="rb") as file_like:
+                yield from file_like
+        return StreamingResponse(iterfile(), media_type="application/pdf")
+    
+    # Fallback to ArXiv Proxy
+    logger.info(f"Proxying PDF for {paper_id} from ArXiv")
+    arxiv_url = f"https://arxiv.org/pdf/{paper_id}.pdf"
+    try:
+        # Stream the request
+        external_req = requests.get(arxiv_url, stream=True, timeout=10)
+        external_req.raise_for_status()
+        
+        return StreamingResponse(
+            external_req.iter_content(chunk_size=8192), 
+            media_type="application/pdf"
+        )
+    except Exception as e:
+        logger.error(f"Failed to fetch PDF for {paper_id} from ArXiv: {e}")
+        raise HTTPException(status_code=404, detail=f"PDF not found on ArXiv: {str(e)}")

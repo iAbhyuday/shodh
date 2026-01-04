@@ -6,7 +6,7 @@ type Paper = {
     id: string;
     title: string;
     abstract: string;
-    source: string;
+    source?: string;
     metrics: {
         tags?: string[];
         core_idea?: string;
@@ -38,7 +38,8 @@ interface DiscoverViewProps {
     loading: boolean;
     error: boolean;
     feed: Paper[];
-    onStudy: (paper: Paper) => void;
+    onQuickRead: (paper: Paper) => void;
+    onDeepRead: (paper: Paper) => void;
     onVisualize: (paper: Paper) => void;
     onAddPaperToProject: (projectId: number, paperId: string) => void;
     projects: Project[];
@@ -70,7 +71,8 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({
     loading,
     error,
     feed,
-    onStudy,
+    onQuickRead,
+    onDeepRead,
     onVisualize,
     onAddPaperToProject,
     projects,
@@ -206,7 +208,8 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({
                                 <PaperCard
                                     key={paper.id}
                                     paper={paper}
-                                    onStudy={onStudy}
+                                    onQuickRead={onQuickRead}
+                                    onDeepRead={onDeepRead}
                                     onVisualize={onVisualize}
                                     onAddPaperToProject={onAddPaperToProject}
                                     onToggleFavorite={onToggleFavorite}

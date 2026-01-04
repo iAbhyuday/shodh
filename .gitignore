@@ -12,13 +12,13 @@ chroma_db/
 .github/
 test_ingestion.py
 response_output.txt
-/notebooks/
+
 src/ingestion/## Caching
 src/ingestion/## Usage Pattern
 src/db/__pycache__/sql_db.cpython-313.pyc
 *.pyc
 src/db/__pycache__/sql_db.cpython-313.pyc
-*.ipynb
+
 notebooks/explainer.ipynb
 src/api/__pycache__/main.cpython-313.pyc
 src/core/__pycache__/config.cpython-313.pyc
@@ -29,3 +29,6 @@ src/db/__pycache__/sql_db.cpython-313.pyc
 src/api/__pycache__/main.cpython-313.pyc
 src/db/__pycache__/sql_db.cpython-313.pyc
 APP_AUDIT_REPORT.md
+notebooks/
+checkopoints/
+scripts/

@@ -10,7 +10,17 @@ logger = logging.getLogger(__name__)
 # Initialize DB
 init_db()
 
+from fastapi.staticfiles import StaticFiles
+import os
+
 app = FastAPI()
+
+# Ensure PDF directory exists
+PDF_DIR = "data/pdfs"
+os.makedirs(PDF_DIR, exist_ok=True)
+
+# Mount PDFs
+app.mount("/pdfs", StaticFiles(directory=PDF_DIR), name="pdfs")
 
 # CORS middleware
 app.add_middleware(

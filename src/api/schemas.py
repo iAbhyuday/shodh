@@ -8,7 +8,8 @@ class PaperActionRequest(BaseModel):
     paper_id: str
     title: str = ""
     summary: str = ""
-    notes: str = ""  # Formatted summary (bullet points)
+    notes: str = ""  # Formatted summary (bullet points from AI)
+    user_notes: str = ""  # User's private scratchpad
     authors: str = ""
     url: str = ""
     published_date: str = ""

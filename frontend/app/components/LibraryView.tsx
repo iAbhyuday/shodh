@@ -19,6 +19,9 @@ interface LibraryViewProps {
     newProjectDimensions: string;
     setNewProjectDimensions: (val: string) => void;
     onCreateProject: () => void;
+    onQuickRead: (paper: Paper) => void;
+    onDeepRead: (paper: Paper) => void;
+    onVisualize: (paper: Paper) => void;
     onSelectProject: (project: Project | null) => void;
     onDeleteProject: (projectId: number) => void;
     onFetchBookmarks: () => void;

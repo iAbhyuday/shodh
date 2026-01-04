@@ -17,7 +17,8 @@ class UserPaper(Base):
     paper_id = Column(String, unique=True, index=True) # Arxiv ID
     title = Column(String)
     summary = Column(Text, nullable=True)  # Original abstract
-    notes = Column(Text, nullable=True)  # Formatted summary (bullet points)
+    notes = Column(Text, nullable=True)  # Formatted summary (bullet points from AI)
+    user_notes = Column(Text, nullable=True)  # User's private scratchpad
     authors = Column(String, nullable=True)
     published_date = Column(String, nullable=True)  # Changed to String for flexibility
     

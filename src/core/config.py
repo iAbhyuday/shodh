@@ -22,13 +22,13 @@ class Settings(BaseSettings):
     HF_TOKEN: str | None = None
 
     # Embeddings & Crew Models
-    LLM_PROVIDER: str = "ollama"  # ollama, openai, azure_openai, gemini
+    LLM_PROVIDER: str = "gemini"  # ollama, openai, azure_openai, gemini
     EMBEDDING_PROVIDER: str = "ollama" # ollama, openai, azure_openai, gemini
     
     # Ollama Defaults
     EMBEDDING_MODEL: str = "nomic-embed-text:v1.5"
-    CREW_LLM_SMALL: str = "qwen2.5:3b"
-    CREW_LLM_LARGE: str = "qwen2.5:7b"
+    CREW_LLM_SMALL: str = "gemini-2.5-flash"  # Defaults for Gemini if provider is Gemini
+    CREW_LLM_LARGE: str = "gemini-2.5-flash"
     
     # OpenAI
     OPENAI_MODEL: str = "gpt-4o"

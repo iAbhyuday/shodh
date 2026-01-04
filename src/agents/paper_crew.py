@@ -470,17 +470,15 @@ class ProductionPaperCrew:
     
     def __init__(
         self,
-        ollama_base_url: Optional[str] = None,
         small_model: Optional[str] = None,
         large_model: Optional[str] = None,
         checkpoint_dir: str = "./checkpoints",
         enable_recovery: bool = True,
-        enable_thinking: bool = False  # Disable for speed
+        enable_thinking: bool = False
     ):
         from src.core.config import get_settings
         settings = get_settings()
         
-        self.ollama_base_url = ollama_base_url or settings.OLLAMA_BASE_URL
         self.small_model = small_model or settings.CREW_LLM_SMALL
         self.large_model = large_model or settings.CREW_LLM_LARGE
         self.enable_thinking = enable_thinking
@@ -490,11 +488,9 @@ class ProductionPaperCrew:
         self.cache = RAGCache()
         self.enable_recovery = enable_recovery
         
-        # Health check
-        from src.core.config import get_settings
-        settings = get_settings()
+        # Provider-specific health checks
         if settings.LLM_PROVIDER == "ollama":
-            self.health_checker = OllamaHealthCheck(ollama_base_url)
+            self.health_checker = OllamaHealthCheck(settings.OLLAMA_BASE_URL)
             self._verify_ollama()
     
     def _verify_ollama(self):
@@ -682,48 +678,51 @@ class ProductionPaperCrew:
 
     def _create_improved_flow(
         self,
-        paper_id: str,
+        paper_ids: str | list[str],
         paper_title: str,
         user_query: str,
         rag_tool,
         small_llm: LLM,
         large_llm: LLM
     ) -> Tuple[List[Agent], List[Task]]:
+        
+        # Determine anchor paper for specific tools if needed
+        anchor_paper = paper_ids[0] if isinstance(paper_ids, list) else paper_ids
 
         # Agent 1: Query Decomposer
         planner = Agent(
             role="Research Query Planner",
-            goal="Break down complex questions into searchable sub-queries",
-            backstory="""You analyze questions and create a search strategy within the paper.
-            Output a numbered list of specific searches needed.""",
+            goal=f"Break down complex questions into searchable sub-queries across the provided research collection ({paper_title})",
+            backstory=f"""You analyze research questions and create a search strategy across a collection of papers. 
+            The collection includes: {paper_ids}.
+            You gather high-level context from multiple papers to plan a comparative or thematic search strategy.""",
             llm=small_llm,
             verbose=True,
             memory=False,
             tools=[PaperTool()]
-            
         )
 
         # Agent 2: Retriever (with tool)
         retriever = Agent(
-            role="Paper Searcher",
-            goal="Execute searches and retrieve evidence",
-            backstory="""You use paper_search tool to find specific information.
-            You search multiple times as needed to gather complete evidence.""",
+            role="Cross-Paper Searcher",
+            goal="Execute searches across multiple papers and retrieve unified evidence",
+            backstory=f"""You use the paper_search tool to find specific information across papers: {paper_ids}.
+            You search consistently across the collection to gather complete evidence for synthesis.""",
             tools=[rag_tool],
             llm=small_llm,
             verbose=True,
-            memory=True,  # Remember what was already searched
+            memory=True,
             max_iter=15
         )
 
-        # Agent 3: Synthesizer (ALSO has tool for follow-up)
+        # Agent 3: Synthesizer
         synthesizer = Agent(
             role="Research Synthesizer",
-            goal="Write comprehensive answers with evidence",
-            backstory="""You synthesize information into clear answers.
-            If you find gaps while writing, you can search for additional details.
-            You cite sources and use <figure:X> tags appropriately.""",
-            tools=[rag_tool],  # ⭐ Give analyst the tool too!
+            goal="Write comprehensive answers by synthesizing evidence from multiple research papers",
+            backstory="""You are an expert at cross-document synthesis. You identify common themes, 
+            contrasting results, and complementary data across multiple research papers.
+            You cite specific papers and sections, and use <figure:X> tags when evidence refers to figures in an anchor paper.""",
+            tools=[rag_tool],
             llm=large_llm,
             verbose=True,
             memory=True,
@@ -733,10 +732,10 @@ class ProductionPaperCrew:
         # Agent 4: Quality Checker
         validator = Agent(
             role="Quality Validator",
-            goal="Verify answer completeness and accuracy",
-            backstory="""You check if answers are complete and well-supported.
-            If critical information is missing, you can trigger additional searches.""",
-            tools=[rag_tool],  # ⭐ Validator can also search!
+            goal="Verify answer completeness, accuracy, and cross-paper coverage",
+            backstory="""You check if answers adequately cover the requested information across all relevant papers.
+            You ensure citations are accurate and that the synthesis is logically sound.""",
+            tools=[rag_tool],
             llm=large_llm,
             verbose=True,
             memory=True,
@@ -747,27 +746,27 @@ class ProductionPaperCrew:
         plan_task = Task(
             description=f"""
     Question: {user_query}
-    Paper: {paper_title}
-    Paper ID: {paper_id}
-You are a research planning agent.
+    Project: {paper_title}
+    Available Papers: {paper_ids}
 
-Your task is to create a structured search plan based on the user’s question
-specifically with respect to paper.
+You are a research planning agent for a collection of papers.
+
+Your task is to create a structured search plan that spans the relevant papers in the project.
 
 Steps you MUST follow:
-1. First determine whether the question refers to the research paper.
-2. If yes, call the `paper_outline` tool to obtain the high-level structure of the paper.
-3. Use the paper outline to identify which sections are relevant to the question.
-4. Break the question into 1–2 focused sub-questions, each mapped to a specific paper section.
-5. Output the plan as a list of sub-questions.
+1. Identify which papers in {paper_ids} are most relevant to the question.
+2. For those papers, call the `paper_outline` tool to obtain their high-level structures.
+3. Use the outlines to identify clusters of relevant sections across different papers.
+4. Break the question into 2–4 focused sub-questions that facilitate comparison or synthesis.
+5. Output the plan as a list of sub-questions, noting which papers each sub-question targets.
 
 Rules:
 - Do NOT answer the question.
 - Do NOT invent paper structure.
-- All sub-questions must be grounded in the paper outline.
-- Each sub-question must be specific and searchable.    """,
+- All sub-questions must be grounded in actual outlines.
+- Each sub-question must be specific and searchable.""",
             agent=planner,
-            expected_output="Numbered list of search queries"
+            expected_output="Multi-paper search strategy with sub-questions"
         )
 
         retrieve_task = Task(
@@ -796,23 +795,24 @@ Rules:
             description=f"""
     Question: {user_query}
 
-    Using the retrieved evidence, write a comprehensive answer.
+    Using the retrieved evidence from across multiple papers, write a comprehensive synthesis.
 
-    IMPORTANT: If while writing you realize you need more details:
-    - Use paper_search to get that specific information
+    IMPORTANT: If while writing you realize you need more comparative details:
+    - Use paper_search to query the specific papers
+    - Contrast findings between papers where applicable
     - Don't make assumptions
 
     Format in Markdown with:
     - Clear structure (## headings)
-    - Evidence citations ("According to Section X...")
-    - Always Add appropriate <figure:N> placeholders where figures will be embedded in answer if figures are mentioned in retrieved text
-    - Technical accuracy
+    - Source-aware citations (e.g., "Paper [ID] Section X states...")
+    - Use <figure:N> placeholders for the anchor paper ({anchor_paper}) when applicable
+    - High technical accuracy and professional synthesis
 
-    If information is genuinely missing, state it clearly.
+    If certain papers do not contain the requested info, note that briefly.
     """,
             agent=synthesizer,
             context=[retrieve_task],
-            expected_output="Complete Markdown answer with citations and figure tags"
+            expected_output="Synthesized Markdown answer with multi-paper citations"
         )
 
         validate_task = Task(
@@ -851,7 +851,7 @@ Rules:
         )
     def execute(
         self,
-        paper_id: str,
+        paper_ids: str | list[str],
         paper_title: str,
         user_query: str,
         chat_history: Optional[str] = None,
@@ -865,7 +865,7 @@ Rules:
             # Check for recovery checkpoint
             if self.enable_recovery:
                 checkpoint = self.checkpoint_mgr.load_last_checkpoint(
-                    paper_id, "analysis"
+                    anchor_id, "analysis"
                 )
                 if checkpoint and checkpoint.get('status') == 'success':
                     # Check if query is the same
@@ -873,14 +873,17 @@ Rules:
                         logger.info("↻ Using cached result from checkpoint!")
                         return checkpoint['data']
             
+            # Unified paper ID handling
+            anchor_id = paper_ids[0] if isinstance(paper_ids, list) else paper_ids
+            
             # Get conversation history (limited for context window)
-            history = chat_history or self.memory_mgr.get_history(paper_id, last_n=2)
+            history = chat_history or self.memory_mgr.get_history(anchor_id, last_n=2)
             # Create LLMs
             small_llm, large_llm = self._create_llms()
-            base_rag_tool = PaperRAGTool(paper_id)
+            base_rag_tool = PaperRAGTool(paper_ids)
             # Wrap RAG tool with robustness
             
-            agents, tasks = self._create_improved_flow(paper_id, paper_title, user_query, base_rag_tool, small_llm, large_llm)
+            agents, tasks = self._create_improved_flow(paper_ids, paper_title, user_query, base_rag_tool, small_llm, large_llm)
             # Create crew (simplified for local)
             crew = Crew(
                 agents=agents,
@@ -918,7 +921,7 @@ Rules:
             # validated_answer, warnings = fig_validator.validate_figure_refs(answer)
             answer = inject_figures(
                 answer,
-                paper_id,
+                anchor_id,
                 SessionLocal()
             )
             return answer
@@ -930,11 +933,11 @@ Rules:
             execution_time = time.time() - start_time
             response = {
                 'status': 'success',
-                'paper_id': paper_id,
+                'paper_id': anchor_id,
                 'query': user_query,
-                'answer': validated_answer,
-                'figures': fig_validator.extract_figure_ids(validated_answer),
-                'warnings': warnings,
+                'answer': answer,
+                'figures': [], # fig_validator.extract_figure_ids(validated_answer),
+                'warnings': [], # warnings,
                 'execution_time': execution_time,
                 'model_info': {
                     'retriever': self.small_model,
@@ -947,13 +950,13 @@ Rules:
             
             # Save checkpoint
             self.checkpoint_mgr.save_checkpoint(
-                paper_id, "analysis", response, "success"
+                anchor_id, "analysis", response, "success"
             )
             
             # Save to memory (truncated)
             self.memory_mgr.add_conversation(
-                paper_id, user_query, validated_answer[:500],
-                {'figures': response['figures'], 'execution_time': execution_time}
+                anchor_id, user_query, answer[:500],
+                {'figures': [], 'execution_time': execution_time}
             )
             
             # Log metrics
@@ -961,13 +964,13 @@ Rules:
                 'execution_time', 
                 execution_time,
                 {
-                    'paper_id': paper_id, 
+                    'paper_id': anchor_id, 
                     'query_length': len(user_query),
-                    'answer_length': len(validated_answer)
+                    'answer_length': len(answer)
                 }
             )
             
-            return validated_answer
+            return answer
             
         except Exception as e:
             logger.error(f"❌ Crew execution failed: {str(e)}", exc_info=True)
@@ -977,19 +980,19 @@ Rules:
                 'status': 'failed',
                 'error': str(e),
                 'error_type': type(e).__name__,
-                'paper_id': paper_id,
+                'paper_id': anchor_id,
                 'query': user_query,
                 'timestamp': datetime.now().isoformat()
             }
             
             self.checkpoint_mgr.save_checkpoint(
-                paper_id, "analysis", error_data, "failed"
+                anchor_id, "analysis", error_data, "failed"
             )
             
             # Attempt recovery
             if self.enable_recovery:
                 recovery_result = self._attempt_recovery(
-                    paper_id, paper_title, user_query, base_rag_tool, 
+                    paper_ids, paper_title, user_query, base_rag_tool, 
                     available_figures, e
                 )
                 if recovery_result:
@@ -999,7 +1002,7 @@ Rules:
     
     def _attempt_recovery(
         self,
-        paper_id: str,
+        paper_ids: str | list[str],
         paper_title: str,
         user_query: str,
         base_rag_tool,
@@ -1009,6 +1012,9 @@ Rules:
         """Attempt recovery strategies"""
         logger.info("🔄 Attempting recovery...")
         
+        # Unified paper ID handling
+        anchor_id = paper_ids[0] if isinstance(paper_ids, list) else paper_ids
+
         try:
             # Strategy 1: Clear memory and retry with fresh context
             logger.info("Recovery: Clearing short-term memory")
@@ -1016,7 +1022,7 @@ Rules:
             
             # Retry with fresh state
             result = self.execute(
-                paper_id, paper_title, user_query, base_rag_tool,
+                paper_ids=paper_ids, paper_title=paper_title, user_query=user_query, 
                 chat_history="",  # Fresh start
                 available_figures=available_figures
             )
@@ -1038,38 +1044,35 @@ Rules:
 # ============================================================================
 
 def run_paper_crew(
-    paper_id: str,
+    paper_ids: str | list[str],
     paper_title: str,
     user_query: str,
-    ollama_base_url: str = "http://localhost:11434",
-    small_model: str = "qwen2.5:3b",
-    large_model: str = "qwen2.5:7b",
+    small_model: Optional[str] = None,
+    large_model: Optional[str] = None,
     chat_history: Optional[str] = None,
     available_figures: Optional[List[str]] = None,
     enable_recovery: bool = False,
     enable_thinking: bool = False
 ) -> Dict[str, Any]:
     """
-    Main entry point for production paper crew (Ollama optimized)
+    Main entry point for production paper crew (Configurable)
     
     Args:
         paper_id: Unique paper identifier
         paper_title: Title of the paper
         user_query: User's question
-        rag_tool: Your PaperRAGTool instance
-        ollama_base_url: Ollama server URL
-        small_model: Fast model for retrieval (e.g., "qwen2.5:3b")
-        large_model: Better model for analysis (e.g., "qwen2.5:7b" or "qwen2.5:14b")
+        small_model: Fast model for retrieval
+        large_model: Better model for analysis
         chat_history: Previous conversation context
-        available_figures: List of figure IDs in the paper (for validation)
+        available_figures: List of figure IDs in the paper
         enable_recovery: Enable automatic recovery on failure
-        enable_thinking: Enable extended thinking (slower but better)
+        enable_thinking: Enable extended thinking
     
     Returns:
         {
             'status': 'success' | 'failed',
             'answer': str (Markdown formatted),
-            'figures': List[str] (figure IDs to embed),
+            'figures': List[str],
             'warnings': List[str],
             'execution_time': float,
             'model_info': dict,
@@ -1078,7 +1081,6 @@ def run_paper_crew(
     """
     
     crew = ProductionPaperCrew(
-        ollama_base_url=ollama_base_url,
         small_model=small_model,
         large_model=large_model,
         enable_recovery=enable_recovery,
@@ -1086,10 +1088,10 @@ def run_paper_crew(
     )
     
     result = crew.execute(
-        paper_id=paper_id,
+        paper_ids=paper_ids,
         paper_title=paper_title,
         user_query=user_query,
-       chat_history=chat_history,
+        chat_history=chat_history,
         available_figures=available_figures
     )
     

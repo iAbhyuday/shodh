@@ -1,6 +1,10 @@
 import React from 'react';
-import { ArrowLeft, Plus, Network, Send, Brain } from 'lucide-react';
+import { ArrowLeft, Plus, Network, Send, Brain, Quote } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import remarkGfm from 'remark-gfm';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import PaperCard from './PaperCard';
 
 type Paper = {
@@ -40,7 +44,8 @@ interface ProjectViewProps {
     projectView: 'papers' | 'synthesis';
     setProjectView: (view: 'papers' | 'synthesis') => void;
     feed: Paper[];
-    onStudy: (paper: Paper) => void;
+    onQuickRead: (paper: Paper) => void;
+    onDeepRead: (paper: Paper) => void;
     onVisualize?: (paper: Paper) => void;
     onAddPaperToProject: (projectId: number, paperId: string) => void;
     activeProjectMenu: string | null;
@@ -66,7 +71,8 @@ const ProjectView: React.FC<ProjectViewProps> = ({
     projectView,
     setProjectView,
     feed,
-    onStudy,
+    onQuickRead,
+    onDeepRead,
     onVisualize,
     onAddPaperToProject,
     activeProjectMenu,
@@ -192,16 +198,125 @@ const ProjectView: React.FC<ProjectViewProps> = ({
                                     </div>
                                 </div>
                             )}
-                            {[...chatMessages].reverse().map((msg, i) => (
-                                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                    <div
-                                        className={`${msg.role === 'user'
-                                            ? 'max-w-[85%] bg-indigo-600 text-white p-5 rounded-3xl rounded-tr-sm shadow-xl break-all overflow-hidden'
-                                            : 'w-full text-gray-200 break-all overflow-hidden'
-                                            }`}
-                                    >
-                                        <div className="prose prose-invert prose-sm prose-p:leading-relaxed prose-p:mb-4 max-w-none">
-                                            <ReactMarkdown>{msg.content}</ReactMarkdown>
+                            {[...chatMessages].reverse().map((msg, idx) => (
+                                <div
+                                    key={idx}
+                                    className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'} mb-8`}
+                                >
+                                    <div className={`flex gap-4 max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                                        {/* Avatar */}
+                                        <div className="flex-shrink-0 mt-1">
+                                            {msg.role === 'user' ? (
+                                                null
+                                            ) : (
+                                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
+                                                    <Brain className="w-4 h-4 text-white" />
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-full`}>
+                                            <div
+                                                className={`${msg.role === 'user'
+                                                    ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-6 py-4 shadow-lg break-words whitespace-pre-wrap'
+                                                    : 'text-gray-200 pl-4 border-l-2 border-indigo-500/50 break-words w-full'
+                                                    }`}
+                                            >
+                                                {msg.role === 'user' ? (
+                                                    <p className="leading-relaxed">{msg.content}</p>
+                                                ) : (
+                                                    <div className="prose prose-invert prose-p:leading-loose prose-p:mb-4 prose-headings:text-gray-100 prose-headings:font-semibold prose-strong:text-white prose-ul:my-4 prose-li:my-1 max-w-none break-words">
+                                                        <ReactMarkdown
+                                                            remarkPlugins={[remarkMath, remarkGfm]}
+                                                            rehypePlugins={[rehypeKatex]}
+                                                            components={{
+                                                                a: ({ node, ...props }) => {
+                                                                    const href = props.href || '';
+
+                                                                    // Handle grouped citations
+                                                                    if (href.startsWith('#citation-group-')) {
+                                                                        const indices = href.replace('#citation-group-', '').split('-').map(i => parseInt(i) - 1);
+                                                                        const citations = indices.map(i => msg.citations?.[i]).filter(Boolean);
+
+                                                                        if (citations.length === 0) return null;
+
+                                                                        return (
+                                                                            <span className="relative inline-block ml-1 group align-baseline">
+                                                                                <span className="cursor-help px-1 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 transition-colors inline-flex items-center justify-center mx-0.5 align-top mt-0.5 h-4 w-auto min-w-[16px]">
+                                                                                    <Quote className="w-2.5 h-2.5" />
+                                                                                    <span className="ml-0.5 text-[8px] opacity-70">{citations.length}</span>
+                                                                                </span>
+                                                                                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-96 max-h-80 overflow-y-auto customized-scrollbar p-3 bg-[#1A1A1A] border border-white/10 rounded-xl shadow-2xl z-50 text-xs text-gray-300 opacity-0 group-hover:opacity-100 invisible group-hover:visible transition-opacity whitespace-normal backdrop-blur-xl flex flex-col gap-3">
+                                                                                    {/* Bridge to prevent hover loss */}
+                                                                                    <span className="absolute -bottom-2 left-0 w-full h-2 bg-transparent" />
+                                                                                    {citations.map((citation, idx) => (
+                                                                                        <span key={idx} className="block pb-2 border-b border-white/5 last:border-0 last:pb-0">
+                                                                                            <span className="block font-bold text-indigo-400 mb-1 tracking-wide uppercase text-[10px]">
+                                                                                                {citation?.section} <span className="text-gray-500 ml-1">[{indices[idx] + 1}]</span>
+                                                                                            </span>
+                                                                                            <span className="leading-relaxed">
+                                                                                                {citation?.summary ? (
+                                                                                                    <span className="text-gray-300 italic">{citation.summary}</span>
+                                                                                                ) : (
+                                                                                                    <span>{citation?.content.slice(0, 400)}...</span>
+                                                                                                )}
+                                                                                            </span>
+                                                                                        </span>
+                                                                                    ))}
+                                                                                </span>
+                                                                            </span>
+                                                                        );
+                                                                    }
+
+                                                                    // Handle single citations
+                                                                    if (href.startsWith('#citation-')) {
+                                                                        const index = parseInt(href.split('-')[1]) - 1;
+                                                                        const citation = msg.citations?.[index];
+                                                                        return (
+                                                                            <span className="relative inline-block ml-1 group align-baseline">
+                                                                                <span className="cursor-help px-1 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 transition-colors inline-flex items-center justify-center mx-0.5 align-top mt-0.5 h-4 w-4">
+                                                                                    <Quote className="w-2.5 h-2.5" />
+                                                                                </span>
+                                                                                {citation && (
+                                                                                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-80 p-3 bg-[#1A1A1A] border border-white/10 rounded-xl shadow-2xl z-50 text-xs text-gray-300 opacity-0 group-hover:opacity-100 invisible group-hover:visible transition-opacity whitespace-normal backdrop-blur-xl">
+                                                                                        {/* Bridge to prevent hover loss */}
+                                                                                        <span className="absolute -bottom-2 left-0 w-full h-2 bg-transparent" />
+                                                                                        <span className="block font-bold text-indigo-400 mb-1 tracking-wide uppercase text-[10px]">{citation.section}</span>
+                                                                                        <span className="leading-relaxed">
+                                                                                            {citation.summary ? (
+                                                                                                <span className="text-gray-300 italic">{citation.summary}</span>
+                                                                                            ) : (
+                                                                                                <span>{citation.content.slice(0, 600)}...</span>
+                                                                                            )}
+                                                                                        </span>
+                                                                                    </span>
+                                                                                )}
+                                                                            </span>
+                                                                        );
+                                                                    }
+                                                                    return <a className="text-indigo-400 underline cursor-pointer hover:text-indigo-300 transition-colors" {...props} target="_blank" rel="noopener noreferrer" />;
+                                                                }
+                                                            }}
+                                                        >
+                                                            {msg.content
+                                                                .replace(/\\\[/g, '$$$')
+                                                                .replace(/\\\]/g, '$$$')
+                                                                .replace(/\\\(/g, '$')
+                                                                .replace(/\\\)/g, '$')
+                                                                // Group citations: [1], [2] -> #citation-group-1-2
+                                                                .replace(/(\[\d+\](?:,\s*\[\d+\]|\s*\[\d+\])+)/g, (match: string) => {
+                                                                    const nums = match.match(/\d+/g)?.join('-') || '';
+                                                                    return `[citations](#citation-group-${nums})`;
+                                                                })
+                                                                .replace(/\[(\d+)\]/g, '[$1](#citation-$1)')
+                                                            }
+                                                        </ReactMarkdown>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Citations (Only for Assistant) */}
+                                            {/* Citations displayed inline via chips */}
                                         </div>
                                     </div>
                                 </div>
@@ -252,7 +367,8 @@ const ProjectView: React.FC<ProjectViewProps> = ({
                         <PaperCard
                             key={paper.id}
                             paper={paper}
-                            onStudy={onStudy}
+                            onQuickRead={onQuickRead}
+                            onDeepRead={onDeepRead}
                             onVisualize={onVisualize}
                             onAddPaperToProject={onAddPaperToProject}
                             activeProjectMenu={activeProjectMenu}
