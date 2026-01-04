@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Silence Turbopack warning in Next.js 16
+  turbopack: {},
   webpack: (config) => {
     config.resolve.alias.canvas = false;
     return config;

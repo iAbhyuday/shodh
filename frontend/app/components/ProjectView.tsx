@@ -6,37 +6,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import PaperCard from './PaperCard';
-
-type Paper = {
-    id: string;
-    title: string;
-    abstract: string;
-    source: string;
-    metrics: {
-        tags?: string[];
-        core_idea?: string;
-        approach?: string[];
-    };
-    url: string;
-    published_date: string;
-    authors: string;
-    is_favorited: boolean;
-    is_saved: boolean;
-    github_url?: string;
-    project_page?: string;
-    thumbnail?: string;
-};
-
-type Project = {
-    id: number;
-    name: string;
-};
-
-type Conversation = {
-    id: number;
-    title: string;
-    message_count: number;
-};
+import type { Paper, Project, Conversation, ChatMessage, IngestionStatus } from '../lib/types';
 
 interface ProjectViewProps {
     project: Project;
@@ -50,17 +20,17 @@ interface ProjectViewProps {
     onAddPaperToProject: (projectId: number, paperId: string) => void;
     activeProjectMenu: string | null;
     setActiveProjectMenu: (id: string | null) => void;
-    ingestionStatus: Record<string, { status: string; chunk_count: number | null }>;
+    ingestionStatus: Record<string, IngestionStatus>;
     conversations: Conversation[];
     activeConversationId: number | null;
     onLoadConversation: (id: number) => void;
     onStartNewChat: () => void;
-    chatMessages: any[];
+    chatMessages: ChatMessage[];
     chatInput: string;
     setChatInput: (val: string) => void;
     onSendChatMessage: () => void;
     chatLoading: boolean;
-    onFetchConversations: (paperId?: string, projectId?: number) => void;
+    onFetchConversations: (params: { paperId?: string; projectId?: number }) => void;
     useAgentMode: boolean;
     onToggleAgentMode: () => void;
 }
@@ -124,7 +94,7 @@ const ProjectView: React.FC<ProjectViewProps> = ({
                     <button
                         onClick={() => {
                             setProjectView('synthesis');
-                            onFetchConversations(undefined, project.id);
+                            onFetchConversations({ projectId: project.id });
                         }}
                         className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${projectView === 'synthesis'
                             ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'

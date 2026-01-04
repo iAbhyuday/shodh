@@ -1,14 +1,6 @@
 import React from 'react';
 import { Plus, Bookmark, Network, Trash2, X } from 'lucide-react';
-
-type Project = {
-    id: number;
-    name: string;
-    description: string | null;
-    research_dimensions: string | null;
-    created_at: string;
-    paper_count: number;
-};
+import type { Paper, Project } from '../lib/types';
 
 interface LibraryViewProps {
     projects: Project[];

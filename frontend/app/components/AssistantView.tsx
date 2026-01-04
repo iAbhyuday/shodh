@@ -5,47 +5,13 @@ import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-
-type Paper = {
-    id: string;
-    title: string;
-    abstract: string;
-    authors: string;
-    url: string;
-    published_date: string;
-    is_favorited: boolean;
-    is_saved: boolean;
-    github_url?: string;
-    project_page?: string;
-    thumbnail?: string;
-};
-
-interface Message {
-    role: 'user' | 'assistant';
-    content: string;
-    citations?: {
-        content: string;
-        section: string;
-        score: number;
-        section_title?: string;
-        page_number?: number;
-        summary?: string;
-    }[];
-}
-
-interface Conversation {
-    id: number;
-    paper_id: string;
-    title: string;
-    created_at: string;
-    message_count: number;
-}
+import type { Paper, ChatMessage, Conversation } from '../lib/types';
 
 interface AssistantViewProps {
     selectedPaper: Paper | null;
     conversations: Conversation[];
     activeConversationId: number | null;
-    chatMessages: Message[];
+    chatMessages: ChatMessage[];
     chatInput: string;
     chatLoading: boolean;
     useAgentMode: boolean;

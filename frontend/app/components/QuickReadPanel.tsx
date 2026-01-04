@@ -5,22 +5,7 @@ import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-
-type Paper = {
-    id: string;
-    title: string;
-    abstract: string;
-    authors: string;
-    url: string;
-    published_date: string;
-    is_saved?: boolean;
-    is_favorited?: boolean;
-    source?: string;
-    metrics: {
-        tags?: string[];
-        core_idea?: string;
-    };
-};
+import type { Paper } from '../lib/types';
 
 interface QuickReadPanelProps {
     paper: Paper;
