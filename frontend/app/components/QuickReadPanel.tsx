@@ -107,13 +107,6 @@ const QuickReadPanel: React.FC<QuickReadPanelProps> = ({
                         )}
                     </div>
 
-                    {/* Abstract */}
-                    <div className="mb-8">
-                        <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Abstract</h3>
-                        <p className="text-gray-300 leading-relaxed text-base tracking-wide whitespace-pre-line">
-                            {paper.abstract}
-                        </p>
-                    </div>
 
                     {/* Tags */}
                     {paper.metrics.tags && paper.metrics.tags.length > 0 && (

@@ -45,19 +45,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                 {[...messages].reverse().map((msg, idx) => (
                     <div key={idx} className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'} mb-8`}>
                         <div className={`flex gap-4 max-w-[90%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                            {/* Avatar */}
-                            <div className="flex-shrink-0 mt-1">
-                                {msg.role === 'assistant' && (
-                                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
-                                        <span className="text-[10px] font-bold text-white">AI</span>
-                                    </div>
-                                )}
-                            </div>
 
                             <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} min-w-0`}>
                                 <div className={`${msg.role === 'user'
-                                        ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-5 py-3 shadow-lg'
-                                        : 'text-gray-200 pl-4 border-l-2 border-indigo-500/50 w-full'
+                                    ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-5 py-3 shadow-lg'
+                                    : 'text-gray-200 pl-4 border-l-2 border-indigo-500/50 w-full'
                                     }`}>
                                     {msg.role === 'user' ? (
                                         <p className="leading-relaxed whitespace-pre-wrap text-sm">{msg.content}</p>
@@ -82,13 +74,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                     </div>
                 ))}
 
-                {loading && (
-                    <div className="flex items-center gap-3 px-4 py-3 mb-6 animate-pulse">
-                        <div className="w-2 h-2 rounded-full bg-indigo-500" />
-                        <span className="text-sm text-gray-400">Thinking...</span>
-                    </div>
-                )}
             </div>
+
+            {/* Thinking Indicator - above input */}
+            {loading && (
+                <div className="flex items-center gap-3 px-4 py-2 animate-pulse border-t border-white/5">
+                    <div className="w-2 h-2 rounded-full bg-indigo-500" />
+                    <span className="text-sm text-gray-400">Thinking...</span>
+                </div>
+            )}
 
             {/* Input Area */}
             <div className="p-4 border-t border-white/10 bg-[#0A0A0A]">

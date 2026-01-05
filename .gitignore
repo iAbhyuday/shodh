@@ -1,34 +1,64 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Environment files
+.env
+.env.example
+
+# Database files
+*.db
+*.sqlite3
+chroma_db/
+
+# Log files
+*.log
+
+# Data directories
+data/
+cache/
+memory/
+checkpoints/
+
+# Notebooks
+notebooks/
+
+# Build artifacts
 *.i
 *.ii
 *.gpu
 *.ptx
 *.cubin
 *.fatbin
-*.db
-*.log
-*.sqlite3
-./.github/
-chroma_db/
-.github/
-test_ingestion.py
-response_output.txt
 
-src/ingestion/## Caching
-src/ingestion/## Usage Pattern
-src/db/__pycache__/sql_db.cpython-313.pyc
-*.pyc
-src/db/__pycache__/sql_db.cpython-313.pyc
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 
-notebooks/explainer.ipynb
-src/api/__pycache__/main.cpython-313.pyc
-src/core/__pycache__/config.cpython-313.pyc
-src/db/__pycache__/sql_db.cpython-313.pyc
-src/api/__pycache__/main.cpython-313.pyc
-src/api/__pycache__/main.cpython-313.pyc
-src/db/__pycache__/sql_db.cpython-313.pyc
-src/api/__pycache__/main.cpython-313.pyc
-src/db/__pycache__/sql_db.cpython-313.pyc
-APP_AUDIT_REPORT.md
-notebooks/
-checkopoints/
+# Scripts (if not needed)
 scripts/
+
+# Test output files
+response_output.txt
+project_response.json
+
+# Reports
+APP_AUDIT_REPORT.md
+
+# Debug files
+debug_settings.py
+
+# macOS
+.DS_Store
+
+# Node modules (frontend)
+frontend/node_modules/
+frontend/.next/
+
+# GitHub workflows (if not needed in this repo context)
+.github/

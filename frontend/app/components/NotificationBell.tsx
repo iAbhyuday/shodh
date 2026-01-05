@@ -1,11 +1,7 @@
 import React, { useState } from 'react';
 import { Bell, RefreshCw, X } from 'lucide-react';
 
-type IngestionStatus = {
-    status: string;
-    chunk_count: number | null;
-    title?: string;
-};
+import type { IngestionStatus } from '../lib/types';
 
 type NotificationBellProps = {
     ingestionStatus: Record<string, IngestionStatus>;
@@ -16,7 +12,7 @@ export default function NotificationBell({ ingestionStatus }: NotificationBellPr
 
     // Filter active tasks
     const activeTasks = Object.entries(ingestionStatus)
-        .filter(([_, info]) => ['pending', 'downloading', 'parsing', 'indexing', 'processing', 'failed'].includes(info.status))
+        .filter(([_, info]) => ['queued', 'pending', 'downloading', 'parsing', 'indexing', 'processing', 'failed'].includes(info.status))
         .map(([id, info]) => ({ id, ...info }));
 
     // Has active tasks?
@@ -73,11 +69,8 @@ export default function NotificationBell({ ingestionStatus }: NotificationBellPr
                                                 </p>
                                                 <div className="flex justify-between items-center mt-0.5">
                                                     <span className={`text-[10px] uppercase ${task.status === 'failed' ? 'text-red-500' : 'text-gray-400'}`}>
-                                                        {task.status === 'failed' ? 'Ingestion Failed' : task.status}
+                                                        {task.status === 'failed' ? 'Ingestion Failed' : (task.step || task.status)}
                                                     </span>
-                                                    {task.chunk_count && (
-                                                        <span className="text-[10px] text-gray-600 font-mono">{task.chunk_count} chunks</span>
-                                                    )}
                                                 </div>
                                             </div>
                                         </div>
@@ -86,11 +79,7 @@ export default function NotificationBell({ ingestionStatus }: NotificationBellPr
                                             <div
                                                 className={`h-full transition-all duration-1000 ${task.status === 'failed' ? 'bg-red-500' : 'bg-gradient-to-r from-indigo-600 to-indigo-400'}`}
                                                 style={{
-                                                    width: task.status === 'completed' ? '100%' :
-                                                        task.status === 'failed' ? '100%' :
-                                                            task.status === 'indexing' ? '85%' :
-                                                                task.status === 'parsing' ? '60%' :
-                                                                    task.status === 'downloading' ? '30%' : '10%'
+                                                    width: `${task.progress || 0}%`
                                                 }}
                                             />
                                         </div>

@@ -1,11 +1,20 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import logging
 
+from src.core.config import get_settings
+from src.core.logging import setup_logging, get_logger
 from src.db.sql_db import init_db
 from src.api.routes import papers, chat, ideas, projects, settings
 
-logger = logging.getLogger(__name__)
+# Initialize logging first
+_settings = get_settings()
+setup_logging(
+    level=_settings.LOG_LEVEL,
+    json_output=_settings.LOG_JSON,
+    log_file=_settings.LOG_FILE
+)
+
+logger = get_logger(__name__)
 
 # Initialize DB
 init_db()

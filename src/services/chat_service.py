@@ -10,7 +10,7 @@ from src.core.config import get_settings
 from src.core.retriever import PaperRetriever
 from src.core.llm_factory import LLMFactory
 from src.db.sql_db import SessionLocal, Message, Project
-from src.api.schemas import ChatRequest, ProjectChatRequest
+from src.api.schemas import ChatRequest
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,17 @@ STANDALONE SEARCH QUERY:"""
     @staticmethod
     async def _stage2_draft_response(query: str, context: str, dimensions: str = "") -> str:
         """Stage 2: Find info and form comprehensive draft response."""
+        from starlette.concurrency import run_in_threadpool
+        
         llm = LLMFactory.get_llama_index_llm()
+        logger.info(f"Stage 2: LLM model being used: {llm.model}")
+        
+        # Truncate context if too long to avoid token limits
+        max_context_chars = 12000
+        if len(context) > max_context_chars:
+            context = context[:max_context_chars] + "\n\n[Context truncated...]"
+            logger.warning(f"Context truncated to {max_context_chars} chars")
+        
         prompt = f"""You are a Deep Learning Researcher. Draft a comprehensive answer to the query based *only* on the provided context.
 QUERY: {query}
 {dimensions}
@@ -62,8 +72,15 @@ INSTRUCTIONS:
 
 DRAFT ANSWER:"""
         
-        response = await llm.acomplete(prompt)
-        return response.text
+        try:
+            logger.info(f"Stage 2: Sending prompt to LLM (prompt length: {len(prompt)} chars)")
+            # Use sync call in threadpool - LlamaIndex Ollama async has issues
+            response = await run_in_threadpool(llm.complete, prompt)
+            logger.info(f"Stage 2: LLM response received")
+            return response.text
+        except Exception as e:
+            logger.exception(f"Stage 2: LLM call failed: {e}")
+            return f"[Error generating response: {str(e)}]"
 
     @staticmethod
     async def _stage3_format_response_stream(draft: str, context: str) -> AsyncGenerator[str, None]:
@@ -172,11 +189,13 @@ FINAL POLISHED RESPONSE:"""
                 logger.info(f"Stage 1: {request.message} -> {query_to_use}")
                 
                 # Retrieval
+                logger.info(f"Starting retrieval for papers: {paper_ids}")
                 retrieved = await retriever.aquery(
                     query_text=query_to_use,
                     paper_id=paper_ids,
                     top_k=8 if request.project_id else 5
                 )
+                logger.info(f"Retrieval complete: {len(retrieved)} chunks found")
                 
                 citations = []
                 context_parts = []
@@ -193,8 +212,6 @@ FINAL POLISHED RESPONSE:"""
                         "paper_id": source,
                         "section_title": chunk['metadata'].get('section_title', ''),
                         "page_number": chunk['metadata'].get('page_number', None),
-                        "section_title": chunk['metadata'].get('section_title', ''),
-                        "page_number": chunk['metadata'].get('page_number', None),
                         "summary": chunk['metadata'].get('section_summary', ''),
                         "score": chunk.get('score', 0)
                     })
@@ -209,8 +226,9 @@ FINAL POLISHED RESPONSE:"""
                     dimensions_context = f"\nRESEARCH DIMENSIONS: {project.research_dimensions}\n"
 
                 # Stage 2: Draft Content
+                logger.info("Stage 2: Starting draft generation")
                 draft = await ChatService._stage2_draft_response(query_to_use, context, dimensions_context)
-                logger.debug(f"Stage 2 Draft: {draft[:100]}...")
+                logger.info(f"Stage 2 Complete. Draft length: {len(draft)} chars")
 
                 # Stage 3: Format & Stream
                 async for token in ChatService._stage3_format_response_stream(draft, context):
@@ -240,125 +258,3 @@ FINAL POLISHED RESPONSE:"""
             logger.exception(f"Chat stream error: {e}")
             yield f"\n\n[Error processing request: {str(e)}]"
 
-    @staticmethod
-    async def project_chat_generator(
-        request: ProjectChatRequest,
-        conversation_id: int,
-        project: Project,
-        paper_ids: List[str]
-    ) -> AsyncGenerator[str, None]:
-        """
-        Generates stream for project synthesis chat.
-        """
-        retriever = PaperRetriever()
-        
-        # Prepare paper info str
-        paper_info = [f"- {p.title} (ArXiv: {p.paper_id})" for p in project.papers]
-        paper_list_str = "\n".join(paper_info)
-        
-        try:
-            history_text = ""
-            if request.history:
-                for msg in request.history[-5:]:
-                    role = msg.get('role', 'user')
-                    content = msg.get('content', '')
-                    history_text += f"{role.upper()}: {content}\n"
-
-            final_response_text = ""
-            citations = []
-            mode = "agent" if request.use_agent else "contextual"
-
-            if request.use_agent:
-                # === AGENTIC MODE ===
-                from src.agents.paper_crew import run_paper_crew
-                response_text = await run_in_threadpool(
-                    run_paper_crew,
-                    paper_ids=paper_ids,
-                    paper_title=project.name,
-                    user_query=f"Analyze across these papers: {request.message}",
-                    chat_history=history_text if history_text else None
-                )
-                final_response_text = response_text
-                
-                # Retrieval for citations
-                retrieved = await retriever.aquery(request.message, paper_id=paper_ids, top_k=5)
-                for i, chunk in enumerate(retrieved):
-                     # FIX: Use 'section' instead of 'section_type'
-                    section = chunk['metadata'].get('section', 'Excerpt')
-                    if isinstance(section, str):
-                        section = section.title()
-                    citations.append({
-                        "content": chunk['content'],
-                        "section": section,
-                        "paper_id": chunk['metadata'].get('paper_id', 'unknown'),
-                        "paper_id": chunk['metadata'].get('paper_id', 'unknown'),
-                        "summary": chunk['metadata'].get('section_summary', ''),
-                        "score": chunk.get('score', 0)
-                    })
-                
-                yield json.dumps({"conversation_id": conversation_id, "citations": citations, "mode": mode}) + "\n"
-                yield response_text
-            else:
-                # === CONTEXTUAL MODE (Multi-Stage) ===
-                
-                # Stage 1
-                query_to_use = await ChatService._stage1_analyze_query(history_text, request.message)
-                logger.info(f"Project Stage 1: {request.message} -> {query_to_use}")
-
-                retrieved = await retriever.aquery(query_to_use, paper_id=paper_ids, top_k=10)
-                context_parts = []
-                citations = []
-                for i, chunk in enumerate(retrieved):
-                    source = chunk['metadata'].get('paper_id', 'unknown')
-                    # FIX: Use 'section'
-                    section = chunk['metadata'].get('section', 'Excerpt')
-                    if isinstance(section, str):
-                        section = section.title()
-                    context_parts.append(f"[{i+1}] [PAPER: {source}]: {chunk['content']}")
-                    citations.append({
-                        "content": chunk['content'],
-                        "paper_id": source,
-                        "section": section,
-                        "section": section,
-                        "summary": chunk['metadata'].get('section_summary', ''),
-                        "score": chunk.get('score', 0)
-                    })
-                
-                context = "\n\n".join(context_parts)
-                dimensions = f"\nPROJECT GOALS & DIMENSIONS:\n{project.research_dimensions}\n" if project.research_dimensions else ""
-                
-                # Yield Header
-                yield json.dumps({"conversation_id": conversation_id, "citations": citations, "mode": mode}) + "\n"
-                
-                # Stage 2
-                draft = await ChatService._stage2_draft_response(
-                    query=f"Synthesize info from these papers: {paper_list_str}\nQUESTION: {query_to_use}", 
-                    context=context, 
-                    dimensions=dimensions
-                )
-                
-                # Stage 3
-                async for token in ChatService._stage3_format_response_stream(draft, context):
-                    final_response_text += token
-                    yield token
-
-            # Save assistant message
-            db_save = SessionLocal()
-            try:
-                assistant_msg = Message(
-                    conversation_id=conversation_id,
-                    role="assistant",
-                    content=final_response_text,
-                    citations_json=json.dumps(citations) if citations else None,
-                    mode=mode
-                )
-                db_save.add(assistant_msg)
-                db_save.commit()
-            except Exception as e:
-                logger.error(f"Failed to save assistant for project chat: {e}")
-            finally:
-                db_save.close()
-
-        except Exception as e:
-            logger.exception(f"Project chat error: {e}")
-            yield f"\n\n[Error: {str(e)}]"

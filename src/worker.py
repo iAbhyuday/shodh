@@ -10,7 +10,7 @@ For production, run multiple workers:
     python -m src.worker &
 """
 import logging
-from rq import Worker, Queue
+from rq import Worker, Queue, SimpleWorker
 from src.jobs.queue import get_redis_connection, is_redis_available
 
 logging.basicConfig(
@@ -35,7 +35,7 @@ def main():
     logger.info("Listening on queues: default")
     logger.info("Press Ctrl+C to stop")
     
-    worker = Worker(queues, connection=conn)
+    worker = SimpleWorker(queues, connection=conn)
     worker.work(with_scheduler=True)
     return 0
 

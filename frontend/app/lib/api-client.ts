@@ -90,6 +90,7 @@ export const papersApi = {
                 published_date: paper.published_date,
                 github_url: paper.github_url || null,
                 project_page: paper.project_page || null,
+                thumbnail: paper.thumbnail || null,
                 mindmap_json: null,
             }),
         }),
@@ -98,10 +99,13 @@ export const papersApi = {
 
     getFavorites: (): Promise<Paper[]> => fetchApi('/library/favorites'),
 
-    getInsights: (paperId: string): Promise<{ insights: string }> =>
-        fetchApi(`/insights/${paperId}`),
+    getInsights: (paperId: string, summary?: string): Promise<{ insights: string }> =>
+        fetchApi('/insights', {
+            method: 'POST',
+            body: JSON.stringify({ paper_id: paperId, summary }),
+        }),
 
-    getIngestionStatus: (paperId: string): Promise<{ ingestion_status: string }> =>
+    getIngestionStatus: (paperId: string): Promise<{ ingestion_status: string; progress?: number; step?: string }> =>
         fetchApi(`/ingestion-status/${paperId}`),
 };
 
@@ -122,13 +126,33 @@ export const projectsApi = {
             }),
         }),
 
+    update: (projectId: number, name?: string, researchDimensions?: string): Promise<Project> =>
+        fetchApi(`/projects/${projectId}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                name,
+                research_dimensions: researchDimensions,
+            }),
+        }),
+
     delete: (projectId: number): Promise<void> =>
         fetchApi(`/projects/${projectId}`, { method: 'DELETE' }),
 
-    addPaper: (projectId: number, paperId: string, title?: string): Promise<void> =>
+    addPaper: (projectId: number, paperId: string, title?: string, summary?: string, authors?: string, url?: string, published_date?: string, thumbnail?: string, tags?: string[], github_url?: string, project_page?: string): Promise<void> =>
         fetchApi(`/projects/${projectId}/add-paper`, {
             method: 'POST',
-            body: JSON.stringify({ paper_id: paperId, title }),
+            body: JSON.stringify({
+                paper_id: paperId,
+                title,
+                summary,
+                authors,
+                url,
+                published_date,
+                thumbnail,
+                tags,
+                github_url,
+                project_page
+            }),
         }),
 
     removePaper: (projectId: number, paperId: string): Promise<void> =>
@@ -181,6 +205,7 @@ export const ingestionApi = {
         title: string;
         status: string;
         progress: number;
+        step: string;
     }>> => fetchApi('/ingestion/jobs'),
 };
 

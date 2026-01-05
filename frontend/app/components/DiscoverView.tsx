@@ -41,7 +41,7 @@ interface DiscoverViewProps {
     onQuickRead: (paper: Paper) => void;
     onDeepRead: (paper: Paper) => void;
     onVisualize: (paper: Paper) => void;
-    onAddPaperToProject: (projectId: number, paperId: string) => void;
+    onAddPaperToProject: (projectId: number, paperId: string, paperTitle?: string, paper?: Paper) => void;
     projects: Project[];
     activeProjectMenu: string | null;
     setActiveProjectMenu: (id: string | null) => void;

@@ -35,7 +35,7 @@ interface PaperCardProps {
     onQuickRead: (paper: Paper) => void;
     onDeepRead: (paper: Paper) => void;
     onVisualize?: (paper: Paper) => void;
-    onAddPaperToProject?: (projectId: number, paperId: string) => void;
+    onAddPaperToProject?: (projectId: number, paperId: string, paperTitle?: string, paper?: Paper) => void;
     projects?: Project[];
     activeProjectMenu: string | null;
     setActiveProjectMenu: (id: string | null) => void;
@@ -55,6 +55,21 @@ const isValidUrl = (url: string) => {
         return true;
     } catch {
         return false;
+    }
+};
+
+// Defensive date formatting to prevent "Jan 1970" display
+const formatDate = (dateString: string | undefined | null): string => {
+    if (!dateString) return '';
+    try {
+        const date = new Date(dateString);
+        // Check for invalid date or epoch (Jan 1970 indicates missing data)
+        if (isNaN(date.getTime()) || date.getFullYear() < 1990) {
+            return '';
+        }
+        return date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+    } catch {
+        return '';
     }
 };
 
@@ -102,20 +117,24 @@ const PaperCard: React.FC<PaperCardProps> = ({
                     <div className="absolute inset-0 bg-gradient-to-t from-[#161618] via-transparent to-transparent opacity-60" />
 
                     {/* Date Overlay */}
-                    <div className="absolute top-4 right-4 z-10">
-                        <span className="px-2 py-1 glass-indigo border border-indigo-500/30 rounded text-[10px] font-mono text-indigo-300 uppercase tracking-widest shadow-xl">
-                            {new Date(paper.published_date).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
-                        </span>
-                    </div>
+                    {formatDate(paper.published_date) && (
+                        <div className="absolute top-4 right-4 z-10">
+                            <span className="px-2 py-1 glass-indigo border border-indigo-500/30 rounded text-[10px] font-mono text-indigo-300 uppercase tracking-widest shadow-xl">
+                                {formatDate(paper.published_date)}
+                            </span>
+                        </div>
+                    )}
                 </div>
             ) : (
                 <div className="relative w-full h-12 bg-gradient-to-b from-[#161618] to-transparent">
                     {/* Date Overlay for no-thumbnail cards */}
-                    <div className="absolute top-4 right-6 z-10">
-                        <span className="px-2 py-1 glass-indigo border border-indigo-500/30 rounded text-[10px] font-mono text-indigo-300 uppercase tracking-widest shadow-xl">
-                            {new Date(paper.published_date).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
-                        </span>
-                    </div>
+                    {formatDate(paper.published_date) && (
+                        <div className="absolute top-4 right-6 z-10">
+                            <span className="px-2 py-1 glass-indigo border border-indigo-500/30 rounded text-[10px] font-mono text-indigo-300 uppercase tracking-widest shadow-xl">
+                                {formatDate(paper.published_date)}
+                            </span>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -130,7 +149,13 @@ const PaperCard: React.FC<PaperCardProps> = ({
                             {paper.title}
                         </h3>
                     </div>
-                    <p className="text-xs text-gray-500 mt-2 font-medium uppercase tracking-wide">{paper.authors}</p>
+                    <p className="text-xs text-gray-500 mt-2 font-medium uppercase tracking-wide">
+                        {(() => {
+                            const authorList = paper.authors.split(',').map(a => a.trim());
+                            if (authorList.length <= 4) return paper.authors;
+                            return `${authorList.slice(0, 4).join(', ')} et al.`;
+                        })()}
+                    </p>
                 </div>
 
                 {/* Abstract Preview */}
@@ -265,7 +290,7 @@ const PaperCard: React.FC<PaperCardProps> = ({
                                                     key={p.id}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        onAddPaperToProject?.(p.id, paper.id);
+                                                        onAddPaperToProject?.(p.id, paper.id, paper.title, paper);
                                                         setActiveProjectMenu(null);
                                                     }}
                                                     className={`w-full text-left px-3 py-2 text-xs rounded-lg transition-all flex items-center justify-between group/item ${paper.project_ids?.includes(p.id)

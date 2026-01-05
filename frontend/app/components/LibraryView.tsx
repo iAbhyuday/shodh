@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Bookmark, Network, Trash2, X } from 'lucide-react';
+import { Plus, Bookmark, Network, Trash2, X, Pencil } from 'lucide-react';
 import type { Paper, Project } from '../lib/types';
 
 interface LibraryViewProps {
@@ -17,6 +17,9 @@ interface LibraryViewProps {
     onSelectProject: (project: Project | null) => void;
     onDeleteProject: (projectId: number) => void;
     onFetchBookmarks: () => void;
+    activeEditingProject: Project | null;
+    onEditProject: (project: Project | null) => void;
+    onUpdateProject: () => void;
 }
 
 const LibraryView: React.FC<LibraryViewProps> = ({
@@ -30,7 +33,10 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     onCreateProject,
     onSelectProject,
     onDeleteProject,
-    onFetchBookmarks
+    onFetchBookmarks,
+    activeEditingProject,
+    onEditProject,
+    onUpdateProject
 }) => {
     return (
         <div className="max-w-5xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -52,7 +58,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
                 <div className="mb-10 p-8 glass rounded-3xl border border-indigo-500/30 flex flex-col gap-6 animate-in fade-in slide-in-from-top-6 duration-500">
                     <div className="flex gap-4">
                         <div className="flex-1 space-y-2">
-                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1">Project Name</label>
+                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1">{activeEditingProject ? "Edit Project Name" : "Project Name"}</label>
                             <input
                                 autoFocus
                                 type="text"
@@ -64,14 +70,17 @@ const LibraryView: React.FC<LibraryViewProps> = ({
                         </div>
                         <div className="flex items-end gap-2">
                             <button
-                                onClick={onCreateProject}
+                                onClick={activeEditingProject ? onUpdateProject : onCreateProject}
                                 disabled={!newProjectName.trim()}
                                 className="px-8 py-4 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-500 transition-all shadow-xl shadow-indigo-500/20 active:scale-95 disabled:opacity-50 disabled:active:scale-100"
                             >
-                                Create Project
+                                {activeEditingProject ? "Save Changes" : "Create Project"}
                             </button>
                             <button
-                                onClick={() => setIsCreatingProject(false)}
+                                onClick={() => {
+                                    setIsCreatingProject(false);
+                                    onEditProject(null);
+                                }}
                                 className="p-4 bg-neutral-800 text-gray-400 rounded-2xl hover:bg-neutral-700 hover:text-white transition-colors"
                             >
                                 <X className="w-6 h-6" />
@@ -122,6 +131,16 @@ const LibraryView: React.FC<LibraryViewProps> = ({
                             <div className="p-4 bg-indigo-600/10 rounded-2xl border border-indigo-500/20 group-hover:bg-indigo-600/20 transition-colors">
                                 <Network className="w-6 h-6 text-indigo-400 group-hover:text-indigo-300 transition-colors" />
                             </div>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onEditProject(project);
+                                }}
+                                className="p-4 bg-indigo-600/10 rounded-2xl border border-indigo-500/20 hover:bg-indigo-600/30 transition-colors opacity-0 group-hover:opacity-100"
+                                title="Edit Project"
+                            >
+                                <Pencil className="w-6 h-6 text-indigo-400 hover:text-indigo-300 transition-colors" />
+                            </button>
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();

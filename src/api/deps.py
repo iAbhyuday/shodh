@@ -5,15 +5,31 @@ This module provides centralized dependency functions that replace
 module-level singletons for better testability and thread safety.
 """
 from functools import lru_cache
-from src.services.ingestion_manager import IngestionJobManager
+from typing import Generator
+
+from sqlalchemy.orm import Session
+
+from src.db.sql_db import SessionLocal
+from src.jobs.queue import get_redis_connection, get_queue
 
 
-@lru_cache
-def get_job_manager() -> IngestionJobManager:
+def get_db() -> Generator[Session, None, None]:
     """
-    Get the singleton IngestionJobManager instance.
+    Database session dependency.
     
-    Uses lru_cache to ensure a single instance per worker process.
-    For multi-worker deployments with shared state, consider Redis.
+    Note: This is also defined in sql_db.py. This re-export provides
+    a single import location for all dependencies.
     """
-    return IngestionJobManager.get_instance()
+    from src.db.sql_db import get_db as _get_db
+    yield from _get_db()
+
+
+@lru_cache()
+def get_redis():
+    """Get Redis connection as a FastAPI dependency."""
+    return get_redis_connection()
+
+
+def get_rq_queue(name: str = "default"):
+    """Get RQ queue as a FastAPI dependency."""
+    return get_queue(name)

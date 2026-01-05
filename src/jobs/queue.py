@@ -41,11 +41,5 @@ def get_queue(name: str = "default") -> Queue | None:
 
 def is_redis_available() -> bool:
     """Check if Redis is available."""
-    conn = get_redis_connection()
-    if conn is None:
-        return False
-    try:
-        conn.ping()
-        return True
-    except Exception:
-        return False
+    return get_redis_connection() is not None
+

@@ -11,17 +11,20 @@ interface ProjectsState {
     isCreating: boolean;
     newProjectName: string;
     newProjectDimensions: string;
+    editingProject: Project | null;
 
     // Actions
     setSelectedProject: (project: Project | null) => void;
     setIsCreating: (creating: boolean) => void;
+    setEditingProject: (project: Project | null) => void;
     setNewProjectName: (name: string) => void;
     setNewProjectDimensions: (dimensions: string) => void;
     fetchProjects: () => Promise<void>;
     fetchProjectPapers: (projectId: number) => Promise<Paper[]>;
     createProject: () => Promise<void>;
+    updateProject: () => Promise<void>;
     deleteProject: (projectId: number) => Promise<void>;
-    addPaperToProject: (projectId: number, paperId: string, title?: string) => Promise<void>;
+    addPaperToProject: (projectId: number, paperId: string, title?: string, summary?: string, authors?: string, url?: string, published_date?: string, thumbnail?: string, tags?: string[], github_url?: string, project_page?: string) => Promise<void>;
     removePaperFromProject: (projectId: number, paperId: string) => Promise<void>;
 }
 
@@ -33,10 +36,33 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
     isCreating: false,
     newProjectName: "",
     newProjectDimensions: "",
+    editingProject: null,
 
     // Setters
     setSelectedProject: (project) => set({ selectedProject: project }),
-    setIsCreating: (creating) => set({ isCreating: creating }),
+    setIsCreating: (creating) => {
+        set({ isCreating: creating });
+        // Reset form if closing
+        if (!creating) {
+            set({
+                newProjectName: "",
+                newProjectDimensions: "",
+                editingProject: null
+            });
+        }
+    },
+    setEditingProject: (project) => {
+        if (project) {
+            set({
+                editingProject: project,
+                newProjectName: project.name,
+                newProjectDimensions: project.research_dimensions || "",
+                isCreating: true // Open form
+            });
+        } else {
+            set({ editingProject: null, isCreating: false });
+        }
+    },
     setNewProjectName: (name) => set({ newProjectName: name }),
     setNewProjectDimensions: (dimensions) => set({ newProjectDimensions: dimensions }),
 
@@ -80,6 +106,25 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
         }
     },
 
+    // Update an existing project
+    updateProject: async () => {
+        const { editingProject, newProjectName, newProjectDimensions, fetchProjects } = get();
+        if (!editingProject || !newProjectName.trim()) return;
+
+        try {
+            await projectsApi.update(editingProject.id, newProjectName, newProjectDimensions);
+            set({
+                newProjectName: "",
+                newProjectDimensions: "",
+                isCreating: false,
+                editingProject: null,
+            });
+            await fetchProjects();
+        } catch (e) {
+            console.error("Failed to update project", e);
+        }
+    },
+
     // Delete a project
     deleteProject: async (projectId) => {
         const { selectedProject, fetchProjects } = get();
@@ -95,9 +140,9 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
     },
 
     // Add a paper to a project
-    addPaperToProject: async (projectId, paperId, title) => {
+    addPaperToProject: async (projectId, paperId, title, summary, authors, url, published_date, thumbnail, tags, github_url, project_page) => {
         try {
-            await projectsApi.addPaper(projectId, paperId, title);
+            await projectsApi.addPaper(projectId, paperId, title, summary, authors, url, published_date, thumbnail, tags, github_url, project_page);
             await get().fetchProjects();
         } catch (e) {
             console.error("Failed to add paper to project", e);

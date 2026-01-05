@@ -2,7 +2,7 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-import datetime
+from datetime import datetime
 import logging
 import json
 
@@ -137,7 +137,7 @@ async def chat_with_paper(request: ChatRequest, db: Session = Depends(get_db)):
     else:
         conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
         if conv:
-            conv.updated_at = datetime.datetime.utcnow()
+            conv.updated_at = datetime.utcnow()
             db.commit()
 
     # Save User Message immediately
@@ -163,52 +163,18 @@ async def chat_with_paper(request: ChatRequest, db: Session = Depends(get_db)):
 @router.post("/project-chat")
 async def project_chat(request: ProjectChatRequest, db: Session = Depends(get_db)):
     """
-    Dedicated endpoint for project-level chat/synthesis.
-    Delegates to ChatService.
+    DEPRECATED: Use /api/chat with project_id instead.
+    This endpoint is kept for backward compatibility.
     """
-    from src.db.sql_db import Project
-    from src.services.chat_service import ChatService
+    # Convert ProjectChatRequest to ChatRequest and delegate
+    from src.api.schemas import ChatRequest as CR
     
-    project = db.query(Project).filter(Project.id == request.project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-        
-    paper_ids = [p.paper_id for p in project.papers if p.ingestion_status == "completed"]
-    if not paper_ids:
-        raise HTTPException(status_code=400, detail="No ingested papers in this project yet.")
-        
-    # Get or create conversation
-    conversation_id = request.conversation_id
-    if not conversation_id:
-        conv = Conversation(
-            project_id=request.project_id,
-            title=request.message[:50] + "..." if len(request.message) > 50 else request.message
-        )
-        db.add(conv)
-        db.commit()
-        db.refresh(conv)
-        conversation_id = conv.id
-    else:
-        conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-        if conv:
-            conv.updated_at = datetime.datetime.utcnow()
-            db.commit()
-
-    # Save User Message
-    user_msg = Message(
-        conversation_id=conversation_id,
-        role="user",
-        content=request.message
+    unified_request = CR(
+        project_id=request.project_id,
+        message=request.message,
+        conversation_id=request.conversation_id,
+        history=request.history,
+        use_agent=request.use_agent
     )
-    db.add(user_msg)
-    db.commit()
-
-    return StreamingResponse(
-        ChatService.project_chat_generator(
-            request=request,
-            conversation_id=conversation_id,
-            project=project,
-            paper_ids=paper_ids
-        ),
-        media_type="text/plain"
-    )
+    
+    return await chat_with_paper(unified_request, db)

@@ -66,7 +66,8 @@ export const usePapersStore = create<PapersState>((set, get) => ({
     // Fetch feed or search results
     fetchFeed: async (options) => {
         const { searchQuery, selectedTags, sortBy, currentPage } = get();
-        set({ loading: true, error: false });
+        // Clear feed immediately to prevent stale data from showing during load
+        set({ loading: true, error: false, feed: [] });
 
         try {
             const effectiveQuery = options?.queryOverride ?? searchQuery;

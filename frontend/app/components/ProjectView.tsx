@@ -17,7 +17,7 @@ interface ProjectViewProps {
     onQuickRead: (paper: Paper) => void;
     onDeepRead: (paper: Paper) => void;
     onVisualize?: (paper: Paper) => void;
-    onAddPaperToProject: (projectId: number, paperId: string) => void;
+    onAddPaperToProject: (projectId: number, paperId: string, paperTitle?: string, paper?: Paper) => void;
     activeProjectMenu: string | null;
     setActiveProjectMenu: (id: string | null) => void;
     ingestionStatus: Record<string, IngestionStatus>;
@@ -345,7 +345,7 @@ const ProjectView: React.FC<ProjectViewProps> = ({
                             setActiveProjectMenu={setActiveProjectMenu}
                             ingestionStatus={ingestionStatus}
                             isProjectView={true}
-                            onRemoveFromCurrentProject={(p) => onAddPaperToProject(project.id, p.id)}
+                            onRemoveFromCurrentProject={(p) => onAddPaperToProject(project.id, p.id, p.title, p)}
                         />
                     ))}
                 </div>

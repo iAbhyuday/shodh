@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 import logging
 
 from src.db.sql_db import get_db, UserPaper, Project
-from src.api.schemas import ProjectCreate, ProjectResponse, ProjectAddPaperRequest
+from src.api.schemas import ProjectCreate, ProjectUpdate, ProjectResponse, ProjectAddPaperRequest
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -49,6 +49,38 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
         paper_count=0
     )
 
+@router.put("/projects/{project_id}", response_model=ProjectResponse)
+def update_project(project_id: int, project_update: ProjectUpdate, db: Session = Depends(get_db)):
+    """Update an existing research project."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    
+    # Check name uniqueness if name is being updated
+    if project_update.name is not None and project_update.name != project.name:
+        existing = db.query(Project).filter(Project.name == project_update.name).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Project with this name already exists.")
+        project.name = project_update.name
+        
+    if project_update.description is not None:
+        project.description = project_update.description
+        
+    if project_update.research_dimensions is not None:
+        project.research_dimensions = project_update.research_dimensions
+        
+    db.commit()
+    db.refresh(project)
+    
+    return ProjectResponse(
+        id=project.id,
+        name=project.name,
+        description=project.description,
+        research_dimensions=project.research_dimensions,
+        created_at=project.created_at.isoformat(),
+        paper_count=len(project.papers)
+    )
+
 @router.get("/projects/{project_id}")
 def get_project(project_id: int, db: Session = Depends(get_db)):
     """Get project details and paper list."""
@@ -74,6 +106,7 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
             "is_saved": p.is_saved,
             "github_url": p.github_url,
             "project_page": p.project_page,
+            "thumbnail": p.thumbnail,
             "project_ids": [proj.id for proj in p.projects],
             "metrics": {
                  "tags": []
@@ -90,7 +123,7 @@ def add_paper_to_project(
     db: Session = Depends(get_db)
 ):
     """Link a paper to a project using its paper_id (arxiv id)."""
-    from src.api.routes.papers import background_ingest_paper
+    from src.api.routes.papers import enqueue_ingestion
     logger.info(f"Paper details: {request}")
     
     paper_id = request.paper_id
@@ -110,81 +143,76 @@ def add_paper_to_project(
                 summary=request.summary or "",
                 url=request.url or f"https://arxiv.org/abs/{paper_id}",
                 published_date=request.published_date or "",
+                thumbnail=request.thumbnail,
+                github_url=request.github_url,
+                project_page=request.project_page,
                 ingestion_status="pending"
             )
             db.add(paper)
             db.commit()
             db.refresh(paper)
         else:
-            # Fallback to ArXiv fetch
-            logger.info(f"Paper {paper_id} not found in DB and no title provided. Fetching from ArXiv...")
-
-        try:
-            import requests
-            import xml.etree.ElementTree as ET
-            arxiv_url = f"http://export.arxiv.org/api/query?id_list={paper_id}"
-            response = requests.get(arxiv_url)
-            response.raise_for_status()
+            # Fallback to ArXiv fetch using ArxivService
+            logger.info(f"Paper {paper_id} not found in DB. Fetching from ArXiv...")
+            from src.services.arxiv_service import ArxivService
             
-            root = ET.fromstring(response.text)
-            namespace = {'atom': 'http://www.w3.org/2005/Atom'}
-            entry = root.find('atom:entry', namespace)
-            
-            if entry:
-                title = entry.find('atom:title', namespace).text.strip()
-                summary = entry.find('atom:summary', namespace).text.strip()
-                authors = ", ".join([a.find('atom:name', namespace).text for a in entry.findall('atom:author', namespace)])
-                published = entry.find('atom:published', namespace).text
-                
-                try:
-                    paper = UserPaper(
-                        paper_id=paper_id,
-                        title=title,
-                        authors=authors,
-                        summary=summary,
-                        url=f"https://arxiv.org/abs/{paper_id}",
-                        published_date=published[:10],
-                        ingestion_status="pending"
-                    )
-                    db.add(paper)
-                    db.commit()
-                    db.refresh(paper)
-                except Exception as e:
-                    db.rollback()
-                    logger.warning(f"IntegrityError or race condition adding paper {paper_id}, trying to fetch existing: {e}")
-                    paper = db.query(UserPaper).filter(UserPaper.paper_id == paper_id).first()
-                    if not paper:
-                         raise HTTPException(status_code=500, detail=f"Failed to create or retrieve paper {paper_id}")
-                    
-                    # Update metadata if missing
-                    updated = False
-                    if not paper.authors or paper.authors == "Unknown":
-                        paper.authors = authors
-                        updated = True
-                    if not paper.summary:
-                        paper.summary = summary
-                        updated = True
-                    if not paper.published_date:
-                        paper.published_date = published[:10]
-                        updated = True
-                    if not paper.title or paper.title == paper_id: # strictly updating purely ID titles
-                         paper.title = title
-                         updated = True
-                         
-                    if updated:
-                        db.commit()
-                        logger.info(f"Updated metadata for existing paper {paper_id}")
-
-            else:
+            metadata = ArxivService.fetch_paper(paper_id)
+            if metadata is None:
                 raise HTTPException(status_code=404, detail="Paper not found on ArXiv.")
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Failed to fetch paper {paper_id} from ArXiv: {e}")
-            # Try once more to find it in DB just in case
-            paper = db.query(UserPaper).filter(UserPaper.paper_id == paper_id).first()
-            if not paper:
-                 raise HTTPException(status_code=404, detail=f"Paper not found and ArXiv fetch failed: {str(e)}")
+            
+            try:
+                paper = UserPaper(
+                    paper_id=paper_id,
+                    title=metadata.title,
+                    authors=metadata.authors,
+                    summary=metadata.summary,
+                    url=metadata.url,
+                    published_date=metadata.published_date,
+                    # We can still try to use request data if available for these extra fields
+                    thumbnail=request.thumbnail,
+                    github_url=request.github_url,
+                    project_page=request.project_page,
+                    ingestion_status="pending"
+                )
+                db.add(paper)
+                db.commit()
+                db.refresh(paper)
+            except Exception as e:
+                db.rollback()
+                logger.warning(f"Race condition adding paper {paper_id}, trying to fetch existing: {e}")
+                paper = db.query(UserPaper).filter(UserPaper.paper_id == paper_id).first()
+                if not paper:
+                    raise HTTPException(status_code=500, detail=f"Failed to create or retrieve paper {paper_id}")
+                
+                # Update metadata if missing or if request has new info
+                updated = False
+                if not paper.authors or paper.authors == "Unknown":
+                    paper.authors = metadata.authors
+                    updated = True
+                if not paper.summary:
+                    paper.summary = metadata.summary
+                    updated = True
+                if not paper.published_date:
+                    paper.published_date = metadata.published_date
+                    updated = True
+                if not paper.title or paper.title == paper_id:
+                    paper.title = metadata.title
+                    updated = True
+                
+                # Update extra fields from request if they are present and missing/different in DB
+                if request.thumbnail and paper.thumbnail != request.thumbnail:
+                    paper.thumbnail = request.thumbnail
+                    updated = True
+                if request.github_url and paper.github_url != request.github_url:
+                    paper.github_url = request.github_url
+                    updated = True
+                if request.project_page and paper.project_page != request.project_page:
+                    paper.project_page = request.project_page
+                    updated = True
+                     
+                if updated:
+                    db.commit()
+                    logger.info(f"Updated metadata for existing paper {paper_id}")
     
     if paper not in project.papers:
         project.papers.append(paper)
@@ -194,7 +222,7 @@ def add_paper_to_project(
     if paper.ingestion_status != "completed":
         paper.ingestion_status = "pending"
         db.commit()
-        background_tasks.add_task(background_ingest_paper, paper_id)
+        enqueue_ingestion(paper_id, background_tasks)
         logger.info(f"Triggered background ingestion for {paper_id} via project {project_id}")
     
     return {"message": f"Added paper '{paper.title}' to project '{project.name}' and triggered ingestion."}

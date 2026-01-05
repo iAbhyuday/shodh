@@ -35,8 +35,8 @@ def generate_ideas(request: IdeaRequest, db: Session = Depends(get_db)):
                 "metrics": {}
             }
              return {"paper_id": request.paper_id, "ideas": idea_agent.generate_ideas(paper_content)}
-    except:
-        pass
+    except Exception as e:
+        logger.debug(f"Paper {request.paper_id} not in vector store, falling back to ArXiv: {e}")
         
     # Fallback: Fetch directly from Arxiv for generation (if not saved/ingested yet)
     # This allows generating ideas on non-saved papers too!
@@ -69,7 +69,6 @@ def visualize_paper(request: IdeaRequest):
         if data['ids']:
             metadata = data['metadatas'][0]
             if metadata.get("mindmap_json"):
-                import json
                 return {"paper_id": request.paper_id, "mindmap": json.loads(metadata.get("mindmap_json"))}
             
             # Generate from content
@@ -77,12 +76,11 @@ def visualize_paper(request: IdeaRequest):
             mindmap_data = vis_agent.generate_mindmap(paper)
             
             # Cache it
-            import json
             metadata["mindmap_json"] = json.dumps(mindmap_data)
             store.collection.update(ids=[request.paper_id], metadatas=[metadata])
             return {"paper_id": request.paper_id, "mindmap": mindmap_data}
-    except:
-        pass
+    except Exception as e:
+        logger.debug(f"Paper {request.paper_id} not in vector store for visualization, falling back to ArXiv: {e}")
 
     # 2. Live Generation (if not in DB or error)
     try:

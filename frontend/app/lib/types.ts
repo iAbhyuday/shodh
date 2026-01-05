@@ -59,6 +59,8 @@ export type IngestionStatus = {
     status: string;
     chunk_count: number | null;
     title?: string;
+    progress?: number;
+    step?: string;
 };
 
 export type SortOption = "date_desc" | "date_asc" | "title_asc" | "title_desc";

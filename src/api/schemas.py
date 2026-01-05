@@ -4,6 +4,10 @@ from pydantic import BaseModel
 class IdeaRequest(BaseModel):
     paper_id: str
 
+class InsightRequest(BaseModel):
+    paper_id: str
+    summary: Optional[str] = None
+
 class PaperActionRequest(BaseModel):
     paper_id: str
     title: str = ""
@@ -15,6 +19,7 @@ class PaperActionRequest(BaseModel):
     published_date: str = ""
     github_url: Optional[str] = None
     project_page: Optional[str] = None
+    thumbnail: Optional[str] = None
     mindmap_json: Optional[str] = None
 
 class ChatRequest(BaseModel):
@@ -66,6 +71,11 @@ class ProjectCreate(BaseModel):
     description: Optional[str] = None
     research_dimensions: Optional[str] = None
 
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    research_dimensions: Optional[str] = None
+
 class ProjectResponse(BaseModel):
     id: int
     name: str
@@ -81,4 +91,8 @@ class ProjectAddPaperRequest(BaseModel):
     authors: Optional[str] = None
     url: Optional[str] = None
     published_date: Optional[str] = None
+    thumbnail: Optional[str] = None
+    tags: Optional[List[str]] = None
+    github_url: Optional[str] = None
+    project_page: Optional[str] = None
 

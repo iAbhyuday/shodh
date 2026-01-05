@@ -134,7 +134,7 @@ class PaperIngestionPipeline:
                 metadata={
                     "paper_id": parsed_doc.paper_id,
                     "title": parsed_doc.title,
-                    "authors": parsed_doc.authors,
+                    "authors": ", ".join(parsed_doc.authors) if isinstance(parsed_doc.authors, list) else str(parsed_doc.authors),
                     "item_type": "full_text"
                 },
                 id_=f"{parsed_doc.paper_id}_full"
@@ -155,11 +155,11 @@ class PaperIngestionPipeline:
                         "paper_id": parsed_doc.paper_id,
                         "section": section.title,
                         "id_": section.section if section.section else "",
-                        "figures": {}
+                        # "figures": {} # Removed to prevent ChromaDB error
                     },
                     id_=f"{parsed_doc.paper_id}_section_{section.section}" if section.section else ""
                 )
-                doc.excluded_embed_metadata_keys = ["figures"]
+                # doc.excluded_embed_metadata_keys = ["figures"]
                 documents.append(doc)
 
         # Add figure captions as helper documents? 
@@ -202,41 +202,3 @@ class PaperIngestionPipeline:
 # Alias for backward compatibility
 IngestionPipeline = PaperIngestionPipeline
 
-
-# Convenience function for background ingestion
-async def ingest_paper_async(
-    paper_id: str,
-    pdf_path: Path,
-    update_status_callback=None
-):
-    """
-    Async wrapper for paper ingestion.
-    Used by background tasks in FastAPI.
-    """
-    from .docling_parser import DoclingParser
-    
-    try:
-        if update_status_callback:
-            await update_status_callback(paper_id, "parsing")
-        
-        # Parse PDF
-        parser = DoclingParser()
-        parsed_doc = parser.parse(pdf_path, paper_id)
-        
-        if update_status_callback:
-            await update_status_callback(paper_id, "embedding")
-        
-        # Ingest using LlamaIndex pipeline
-        pipeline = PaperIngestionPipeline()
-        chunk_count = pipeline.ingest(parsed_doc)
-        
-        if update_status_callback:
-            await update_status_callback(paper_id, "completed", chunk_count)
-        
-        return chunk_count
-        
-    except Exception as e:
-        logger.error(f"Ingestion failed for {paper_id}: {e}")
-        if update_status_callback:
-            await update_status_callback(paper_id, "failed")
-        raise

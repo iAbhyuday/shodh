@@ -5,11 +5,17 @@ from functools import lru_cache
 class Settings(BaseSettings):
     APP_NAME: str = "Shodh"
     API_V1_STR: str = "/api/v1"
+    DEBUG_MODE: bool = True  # Set to True in development to disable SSL verification
+    
+    # Logging
+    LOG_LEVEL: str = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    LOG_JSON: bool = False   # Set to True for JSON output (production)
+    LOG_FILE: str | None = None  # Optional log file path
     
     # LLM Configuration
     OPENAI_API_KEY: str | None = None
     GEMINI_API_KEY: str | None = None
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_BASE_URL: str = "http://139.10.175.183:11434"
     OLLAMA_MODEL: str = "qwen2.5:7b"
     
     # Vector DB
@@ -17,6 +23,9 @@ class Settings(BaseSettings):
     COLLECTION_NAME: str = "research_papers"
     VECTOR_DB_HOST: str | None = None
     VECTOR_DB_PORT: int = 8000
+    
+    # SQL Database
+    DATABASE_URL: str = "sqlite:///./shodh.db"
     
     # HuggingFace
     HF_TOKEN: str | None = None

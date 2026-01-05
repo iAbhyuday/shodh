@@ -3,10 +3,17 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 
-# SQLite database
-DATABASE_URL = "sqlite:///./shodh.db"
+from src.core.config import get_settings
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# Get database URL from settings (configurable via .env)
+_settings = get_settings()
+
+# SQLite requires special connect_args, PostgreSQL does not
+_connect_args = {}
+if _settings.DATABASE_URL.startswith("sqlite"):
+    _connect_args["check_same_thread"] = False
+
+engine = create_engine(_settings.DATABASE_URL, connect_args=_connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -26,6 +33,7 @@ class UserPaper(Base):
     url = Column(String, nullable=True)  # Paper URL (arxiv.org)
     github_url = Column(String, nullable=True)  # GitHub repository
     project_page = Column(String, nullable=True)  # Project page
+    thumbnail = Column(String, nullable=True)  # Thumbnail image URL
     
     # Cached visualizations
     mindmap_json = Column(Text, nullable=True)  # Mindmap data as JSON string
@@ -65,7 +73,7 @@ class Message(Base):
     __tablename__ = "messages"
     
     id = Column(Integer, primary_key=True, index=True)
-    conversation_id = Column(Integer, index=True)  # Links to Conversation.id
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), index=True)  # Links to Conversation.id
     role = Column(String)  # 'user' or 'assistant'
     content = Column(Text)
     citations_json = Column(Text, nullable=True)  # JSON array of citation objects
