@@ -10,6 +10,16 @@ from dataclasses import dataclass, field
 
 import time
 
+import os
+
+# Fix for macOS SSL errors when downloading models from HuggingFace
+# docling relies on huggingface_hub to download layout/OCR models
+os.environ["HF_HUB_DISABLE_SSL_VERIFY"] = "1"
+# Also ensure certifi is used where possible
+import certifi
+os.environ['SSL_CERT_FILE'] = certifi.where()
+os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
+
 from docling_core.types.doc import ImageRefMode, PictureItem, TableItem
 
 from docling.datamodel.base_models import InputFormat
@@ -225,7 +235,6 @@ class DoclingParser:
         HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.*)$")
         structure = {}
         lines = Path(md_path).read_text(encoding="utf-8").splitlines()
-        lines = list(map(lambda x: x.lower(), lines))
         for idx, line in enumerate(lines, start=1):
             match = HEADING_PATTERN.match(line)
             if match:
@@ -268,7 +277,7 @@ class DoclingParser:
         last_end_index = 0
 
         # re.finditer returns an iterator yielding match objects for all non-overlapping matches.
-        for match_object in re.finditer(pattern, original_string, re.DOTALL):
+        for match_object in re.finditer(pattern, original_string, re.DOTALL | re.IGNORECASE):
             # 1. Extract the data from the current match's capturing groups
             # We'll get all captured groups as a tuple and append it.
             # We'll also apply .strip() to string groups for cleanliness,
@@ -344,10 +353,11 @@ class DoclingParser:
     def extract_figures(self, outline, paper_id) -> Tuple[Dict, Dict[str, Any]]:
         
         base64_only_pattern = r"!\[image\]\(data:image\/png;base64,([^)]+)\)"
-        pattern = r"figure (\d+): (.*?)\.\n\n!\[image\]\(data:image\/png;base64,([^)]+)\)"
+        # Match various figure naming: Figure 1, figure 1, Fig. 1, fig. 1 (case-insensitive)
+        pattern = r"(?:Figure|Fig\.?)\s*(\d+)[:\.]?\s*(.*?)\.\n\n!\[image\]\(data:image\/png;base64,([^)]+)\)"
         all_figures = []
         for i in outline:
-            if i == "references":
+            if i.lower() == "references":
                 continue
             content = outline[i]
             outline[i] = {"figs": []}
@@ -373,10 +383,24 @@ class DoclingParser:
 
     def insert_figures(self, figures, db: SessionLocal):
         logger.info("Inserting figures to DB")
-        for i in figures:
-            logger.info(f"Inserting: Paper[{i['paper_id']}] Section[{i['section']}] Figure[{i['figure_id']}]")
+        
+        # Deduplicate figures by figure_id (keep first occurrence)
+        seen_ids = set()
+        unique_figures = []
+        for fig in figures:
+            fig_id = str(fig["figure_id"])
+            if fig_id not in seen_ids:
+                seen_ids.add(fig_id)
+                unique_figures.append(fig)
+            else:
+                logger.info(f"Skipping duplicate Figure[{fig_id}]")
+        
+        for i in unique_figures:
+            # Ensure figure_id is string (DB column is varchar)
+            fig_id = str(i["figure_id"])
+            logger.info(f"Inserting: Paper[{i['paper_id']}] Section[{i['section']}] Figure[{fig_id}]")
             db.merge(Figures(
-                figure_id=i["figure_id"],
+                figure_id=fig_id,
                 section=i["section"],
                 paper_id=i["paper_id"],
                 caption=i["caption"],
@@ -439,9 +463,14 @@ class DoclingParser:
             references = paper_ir["references"] if "references" in paper_ir else []
             logger.info(f"references: {references[:4]}....")
             sections = []
-            del paper_ir["references"]
+            if "references" in paper_ir:
+                del paper_ir["references"]
+            if "References" in paper_ir:
+                del paper_ir["References"]
             logger.info(f"Parsing sections....")
             for i in paper_ir:
+                if "references" in i.lower():
+                    continue
                 t = i
                 sec = None
                 sec_type = "section"
@@ -457,7 +486,7 @@ class DoclingParser:
                 sections.append(
                     Section(
                         title=t.strip(),
-                        content=paper_ir[i]["content"],
+                        content=paper_ir[i]["content"].lower(),
                         section_type=sec_type,
                         section=sec
                     )

@@ -1,26 +1,32 @@
+"""
+Visualization agent for generating mindmaps from paper content.
+"""
 from typing import Dict, Any
-from pathlib import Path
-from src.core.config import get_settings
+import logging
+
+from src.agents.base_agent import BaseAgent
 from src.api.schemas import MindMapNode
 from llama_index.core.program import LLMTextCompletionProgram
 
-settings = get_settings()
+logger = logging.getLogger(__name__)
 
-class VisualizationAgent:
-    def __init__(self):
-        self.llm = self._get_llm()
-        
-        # Load prompt from external file
-        prompt_path = Path(__file__).parent / "prompts" / "visualization_prompt.txt"
-        with open(prompt_path, "r", encoding="utf-8") as f:
-            self.prompt_template = f.read().strip()
 
-    def _get_llm(self):
-        from src.core.llm_factory import LLMFactory
-        return LLMFactory.get_llama_index_llm()
+class VisualizationAgent(BaseAgent):
+    """Agent that generates mindmap visualizations from papers."""
+    
+    prompt_file = "visualization_prompt.txt"
 
     def generate_mindmap(self, paper: Dict[str, Any]) -> Dict[str, Any]:
-        if not self.llm:
+        """
+        Generate a mindmap visualization from a paper.
+        
+        Args:
+            paper: Dictionary with 'title' and 'abstract'
+            
+        Returns:
+            Mindmap dictionary with id, label, and children
+        """
+        if not self.is_configured:
             return {"id": "root", "label": "LLM Not Configured", "children": []}
 
         try:
@@ -31,7 +37,6 @@ class VisualizationAgent:
                 verbose=True
             )
             
-            # The prompt expects {title} and {abstract}
             result: MindMapNode = program(
                 title=paper.get("title", ""), 
                 abstract=paper.get("abstract", "")
@@ -39,5 +44,6 @@ class VisualizationAgent:
             
             return result.dict()
         except Exception as e:
-            print(f"Error generating visualization: {e}")
+            logger.error(f"Error generating visualization: {e}")
             return {"id": "root", "label": "Error Generating Map", "children": []}
+

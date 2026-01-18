@@ -1,29 +1,32 @@
+"""
+Metrics agent for extracting structured data from papers.
+"""
 from typing import Dict, Any, List
-from pathlib import Path
-from src.core.config import get_settings
+import logging
+
+from src.agents.base_agent import BaseAgent
 from src.api.schemas import PaperMetrics
 from llama_index.core.program import LLMTextCompletionProgram
 
-settings = get_settings()
+logger = logging.getLogger(__name__)
 
-class MetricsAgent:
-    def __init__(self):
-        self.llm = self._get_llm()
-        
-        # Load prompt from external file
-        prompt_path = Path(__file__).parent / "prompts" / "metrics_prompt.txt"
-        with open(prompt_path, "r", encoding="utf-8") as f:
-            self.prompt_template = f.read().strip()
 
-    def _get_llm(self):
-        from src.core.llm_factory import LLMFactory
-        return LLMFactory.get_llama_index_llm()
+class MetricsAgent(BaseAgent):
+    """Agent that extracts metrics and structured data from papers."""
+    
+    prompt_file = "metrics_prompt.txt"
 
     def extract_metrics(self, paper: Dict[str, Any]) -> Dict[str, Any]:
         """
         Extract metrics and structured data from a paper.
+        
+        Args:
+            paper: Dictionary with 'title' and 'abstract'
+            
+        Returns:
+            Dictionary of extracted metrics
         """
-        if not self.llm:
+        if not self.is_configured:
             return {"error": "No LLM configured"}
             
         try:
@@ -40,12 +43,18 @@ class MetricsAgent:
             )
             return result.dict()
         except Exception as e:
-            print(f"Error extracting metrics for {paper.get('title')}: {e}")
+            logger.error(f"Error extracting metrics for {paper.get('title')}: {e}")
             return {}
 
     def run(self, papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Process a list of papers and enrich them with metrics.
+        
+        Args:
+            papers: List of paper dictionaries
+            
+        Returns:
+            List of papers enriched with metrics
         """
         enriched_papers = []
         for paper in papers:

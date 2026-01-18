@@ -50,7 +50,7 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     )
 
 @router.put("/projects/{project_id}", response_model=ProjectResponse)
-def update_project(project_id: int, project_update: ProjectUpdate, db: Session = Depends(get_db)):
+def update_project(project_id: str, project_update: ProjectUpdate, db: Session = Depends(get_db)):
     """Update an existing research project."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -82,7 +82,7 @@ def update_project(project_id: int, project_update: ProjectUpdate, db: Session =
     )
 
 @router.get("/projects/{project_id}")
-def get_project(project_id: int, db: Session = Depends(get_db)):
+def get_project(project_id: str, db: Session = Depends(get_db)):
     """Get project details and paper list."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -117,7 +117,7 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
 
 @router.post("/projects/{project_id}/add-paper")
 def add_paper_to_project(
-    project_id: int, 
+    project_id: str, 
     request: ProjectAddPaperRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
@@ -146,7 +146,7 @@ def add_paper_to_project(
                 thumbnail=request.thumbnail,
                 github_url=request.github_url,
                 project_page=request.project_page,
-                ingestion_status="pending"
+                # ingestion_status set after successful enqueue
             )
             db.add(paper)
             db.commit()
@@ -172,7 +172,7 @@ def add_paper_to_project(
                     thumbnail=request.thumbnail,
                     github_url=request.github_url,
                     project_page=request.project_page,
-                    ingestion_status="pending"
+                    # ingestion_status set after successful enqueue
                 )
                 db.add(paper)
                 db.commit()
@@ -220,33 +220,19 @@ def add_paper_to_project(
         
     # Trigger ingestion automatically if not completed
     if paper.ingestion_status != "completed":
-        paper.ingestion_status = "pending"
-        db.commit()
-        enqueue_ingestion(paper_id, background_tasks)
-        logger.info(f"Triggered background ingestion for {paper_id} via project {project_id}")
+        result = enqueue_ingestion(paper_id, background_tasks)
+        # Only set pending status if job was successfully queued
+        if result.get("queued"):
+            paper.ingestion_status = "pending"
+            db.commit()
+            logger.info(f"Triggered background ingestion for {paper_id} via project {project_id} (method: {result.get('method')})")
+        else:
+            logger.warning(f"Failed to enqueue ingestion for {paper_id}, status not updated")
     
     return {"message": f"Added paper '{paper.title}' to project '{project.name}' and triggered ingestion."}
 
-@router.delete("/projects/{project_id}/remove-paper/{paper_db_id}")
-def remove_paper_from_project(project_id: int, paper_db_id: int, db: Session = Depends(get_db)):
-    """Unlink a paper from a project using its DB primary key."""
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    
-    paper = db.query(UserPaper).filter(UserPaper.id == paper_db_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found.")
-    
-    if paper in project.papers:
-        project.papers.remove(paper)
-        db.commit()
-        return {"message": "Paper removed from project."}
-    
-    return {"message": "Paper was not in project."}
-
 @router.delete("/projects/{project_id}/paper/{paper_id}")
-def remove_paper_by_id(project_id: int, paper_id: str, db: Session = Depends(get_db)):
+def remove_paper_from_project(project_id: str, paper_id: str, db: Session = Depends(get_db)):
     """Unlink a paper from a project using its ArXiv ID."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -264,7 +250,7 @@ def remove_paper_by_id(project_id: int, paper_id: str, db: Session = Depends(get
     return {"message": "Paper was not in project."}
 
 @router.delete("/projects/{project_id}")
-def delete_project(project_id: int, db: Session = Depends(get_db)):
+def delete_project(project_id: str, db: Session = Depends(get_db)):
     """Delete a project entirely."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -276,4 +262,3 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     db.commit()
     
     return {"message": f"Project '{project.name}' deleted successfully."}
-

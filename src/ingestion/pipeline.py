@@ -21,9 +21,9 @@ Summary:"""
 
 class PaperIngestionPipeline:
     """
-    Paper ingestion pipeline using LlamaIndex's IngestionPipeline.
+    Paper ingestion pipeline using LlamaIndex's transformations pipeline.
     
-    Flow: PaperDocument → LlamaIndex Documents → Transformations → ChromaDB
+    Flow: PaperDocument → LlamaIndex Documents → Transformations → Qdrant
     """
     
     def __init__(
@@ -32,94 +32,23 @@ class PaperIngestionPipeline:
         collection_name: Optional[str] = None,
         chunk_size: int = 1024,
         chunk_overlap: int = 100,
-        chroma_persist_path: Optional[str] = None,
         meta_extraction: Optional[bool] = False
     ):
         from src.core.config import get_settings
         settings = get_settings()
         
-        self.embedding_model = embedding_model # Factory handles defaults if None
-        self.collection_name = collection_name or settings.COLLECTION_NAME
+        self.embedding_model = embedding_model  # Factory handles defaults if None
+        self.collection_name = collection_name or settings.QDRANT_COLLECTION
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-        self.chroma_persist_path = chroma_persist_path or settings.VECTOR_DB_PATH
         self.meta_extraction = meta_extraction
         self._pipeline = None
         self._vector_store = None
         
-    def _get_vector_store(self):
-        """Get or create ChromaDB vector store."""
-        if self._vector_store is None:
-            import chromadb
-            from llama_index.vector_stores.chroma import ChromaVectorStore
-            from src.db.vector_store import get_chroma_client
-            from src.core.config import get_settings
-            
-            chroma_client = get_chroma_client(get_settings())
-            chroma_collection = chroma_client.get_or_create_collection(
-                name=self.collection_name
-            )
-            self._vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-        
-        return self._vector_store
-    
     def _get_embed_model(self):
         """Get embedding model via Factory."""
         from src.core.llm_factory import LLMFactory
         return LLMFactory.get_llama_index_embedding(model_name=self.embedding_model)
-    
-    def _build_pipeline(self):
-        """Build LlamaIndex IngestionPipeline with transformations."""
-        from llama_index.core.ingestion import IngestionPipeline
-        from llama_index.core.node_parser import MarkdownNodeParser, SentenceSplitter
-        
-        if self.meta_extraction:
-            from llama_index.core.extractors import (
-                SummaryExtractor,
-                QuestionsAnsweredExtractor,
-                TitleExtractor,
-                KeywordExtractor,
-            )
-            from src.ingestion.extractors import FigureExtractor
-            from src.core.llm_factory import LLMFactory
-            llm = LLMFactory.get_llama_index_llm()
-            transformations = [
-                # Step 1: Split by Markdown structure
-                MarkdownNodeParser(),
-                # Step 2: Split large chunks further if needed
-                SentenceSplitter(
-                    chunk_size=self.chunk_size,
-                    chunk_overlap=self.chunk_overlap
-                ),
-                # Step 3: Extract metadata
-                SummaryExtractor(
-                    llm=llm, 
-                    summaries=["prev", "self"],
-                    prompt_template=SUMMARY_EXTRACT_TEMPLATE
-                ),
-                QuestionsAnsweredExtractor(llm=llm, questions=2, embedding_only=True),
-                KeywordExtractor(llm=llm),
-                FigureExtractor(llm=llm),
-                # Step 3: Generate embeddings
-                self._get_embed_model()
-            ]
-        else:
-            transformations = [
-                # Step 1: Split by Markdown structure
-                MarkdownNodeParser(),
-                # Step 2: Split large chunks further if needed
-                SentenceSplitter(
-                    chunk_size=self.chunk_size,
-                    chunk_overlap=self.chunk_overlap
-                ),
-                # Step 3: Generate embeddings
-                self._get_embed_model()
-            ]
-        
-        return IngestionPipeline(
-            transformations=transformations,
-            vector_store=self._get_vector_store(),
-        )
     
     def _parsed_doc_to_documents(self, parsed_doc: PaperDocument) -> List:
         """Convert PaperDocument to LlamaIndex Documents."""
@@ -173,7 +102,7 @@ class PaperIngestionPipeline:
     
     def ingest(self, parsed_doc: PaperDocument) -> int:
         """
-        Ingest a parsed document using LlamaIndex IngestionPipeline.
+        Ingest a parsed document using Qdrant.
         
         Args:
             parsed_doc: Parsed document from DoclingParser
@@ -188,15 +117,72 @@ class PaperIngestionPipeline:
             logger.warning(f"No documents created for {parsed_doc.paper_id}")
             return 0
         
-        # Build and run the pipeline
-        pipeline = self._build_pipeline()
-        
-        # Run pipeline - automatically stores in vector store
-        nodes = pipeline.run(documents=documents, show_progress=True, num_workers=4)
-        
-        logger.info(f"Ingested {len(nodes)} nodes for {parsed_doc.paper_id}")
-        return len(nodes)
+        return self._ingest_to_qdrant(documents, parsed_doc.paper_id)
     
+    def _ingest_to_qdrant(self, documents: List, paper_id: str) -> int:
+        """Ingest documents to Qdrant with chunking."""
+        from src.db.qdrant_store import QdrantVectorStore
+        from llama_index.core.node_parser import MarkdownNodeParser, SentenceSplitter
+        from llama_index.core.ingestion import run_transformations
+        from src.core.llm_factory import LLMFactory
+
+        store = QdrantVectorStore()
+        
+        # 1. Define Transformations (Chunking)
+        transformations = [
+            MarkdownNodeParser(),
+            SentenceSplitter(
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.chunk_overlap
+            )
+        ]
+        
+        # Add metadata extractors if enabled
+        if self.meta_extraction:
+            from llama_index.core.extractors import (
+                SummaryExtractor,
+                QuestionsAnsweredExtractor,
+                KeywordExtractor,
+            )
+            from src.ingestion.extractors import FigureExtractor
+            
+            llm = LLMFactory.get_llama_index_llm()
+            transformations.extend([
+                SummaryExtractor(
+                    llm=llm, 
+                    summaries=["prev", "self"],
+                    prompt_template=SUMMARY_EXTRACT_TEMPLATE
+                ),
+                QuestionsAnsweredExtractor(llm=llm, questions=2, embedding_only=True),
+                KeywordExtractor(llm=llm),
+                FigureExtractor(llm=llm)
+            ])
+            
+        # 2. Run Transformations
+        logger.info(f"Running transformations/chunking for {paper_id}...")
+        nodes = run_transformations(
+            documents,
+            transformations,
+            show_progress=True
+        )
+        
+        logger.info(f"Created {len(nodes)} chunks from {len(documents)} docs")
+
+        # 3. Convert Nodes to Qdrant Docs
+        qdrant_docs = []
+        for node in nodes:
+            qdrant_docs.append({
+                'text': node.text,
+                'metadata': {
+                    'paper_id': paper_id,
+                    **node.metadata
+                }
+            })
+        
+        # 4. Index in Qdrant
+        count = store.add_documents(qdrant_docs, paper_id)
+        logger.info(f"Ingested {count} documents to Qdrant for {paper_id}")
+        return count
 
 
 # Alias for backward compatibility

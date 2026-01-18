@@ -2,7 +2,6 @@ fastapi
 uvicorn
 python-dotenv
 pydantic-settings
-chromadb
 arxiv
 requests
 beautifulsoup4
@@ -13,7 +12,6 @@ sqlalchemy
 docling
 llama-index
 llama-index-embeddings-ollama
-llama-index-vector-stores-chroma
 llama-index-llms-ollama
 llama-index-llms-openai
 llama-index-llms-azure-openai
@@ -28,4 +26,10 @@ crewai-tools
 
 # Job Queue
 rq>=1.16.0
-redis>=5.0.0
+redis>=4.5.0  # Includes redis.asyncio for SSE Pub/Sub
+
+# Hybrid Retrieval
+qdrant-client
+
+# Database
+psycopg2-binary

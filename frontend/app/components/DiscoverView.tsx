@@ -2,34 +2,7 @@ import React, { useState } from 'react';
 import { Search, Loader2, X } from 'lucide-react';
 import PaperCard from './PaperCard';
 
-type Paper = {
-    id: string;
-    title: string;
-    abstract: string;
-    source?: string;
-    metrics: {
-        tags?: string[];
-        core_idea?: string;
-        approach?: string[];
-    };
-    url: string;
-    published_date: string;
-    authors: string;
-    is_favorited: boolean;
-    is_saved: boolean;
-    github_url?: string;
-    project_page?: string;
-    thumbnail?: string;
-    project_ids?: number[];
-};
-
-type Project = {
-    id: number;
-    name: string;
-    description: string | null;
-    created_at: string;
-    paper_count: number;
-};
+import { Paper, Project } from '../lib/types';
 
 interface DiscoverViewProps {
     searchQuery: string;
@@ -41,7 +14,7 @@ interface DiscoverViewProps {
     onQuickRead: (paper: Paper) => void;
     onDeepRead: (paper: Paper) => void;
     onVisualize: (paper: Paper) => void;
-    onAddPaperToProject: (projectId: number, paperId: string, paperTitle?: string, paper?: Paper) => void;
+    onAddPaperToProject: (projectId: string, paperId: string, paperTitle?: string, paper?: Paper) => void;
     projects: Project[];
     activeProjectMenu: string | null;
     setActiveProjectMenu: (id: string | null) => void;

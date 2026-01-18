@@ -10,13 +10,14 @@ import type { Paper, ChatMessage, Conversation } from '../lib/types';
 interface AssistantViewProps {
     selectedPaper: Paper | null;
     conversations: Conversation[];
-    activeConversationId: number | null;
+    activeConversationId: string | null;
     chatMessages: ChatMessage[];
     chatInput: string;
     chatLoading: boolean;
     useAgentMode: boolean;
+    useJobMode: boolean;
     onStartNewChat: () => void;
-    onLoadConversation: (id: number) => void;
+    onLoadConversation: (id: string) => void;
     onBackToLibrary: () => void;
     onSetChatInput: (val: string) => void;
     onSendChatMessage: () => void;
@@ -31,6 +32,7 @@ const AssistantView: React.FC<AssistantViewProps> = ({
     chatInput,
     chatLoading,
     useAgentMode,
+    useJobMode,
     onStartNewChat,
     onLoadConversation,
     onBackToLibrary,
@@ -265,10 +267,22 @@ const AssistantView: React.FC<AssistantViewProps> = ({
                                         ? 'bg-orange-600/20 border-orange-500 text-orange-400'
                                         : 'bg-neutral-800 border-white/10 text-gray-500'
                                         }`}
+                                    title={useAgentMode ? "Agent Mode is under development - responses will use contextual RAG" : "Enable experimental agent mode"}
                                 >
                                     {useAgentMode ? '🤖 Agent Mode' : '⚡ Fast Mode'}
                                 </button>
-                                <span>{useAgentMode ? 'Multi-step reasoning (slower)' : 'Quick contextual answers'}</span>
+                                <span>{useAgentMode ? 'Multi-step reasoning (coming soon)' : 'Quick contextual answers'}</span>
+                                {useAgentMode && (
+                                    <span className="px-2 py-0.5 bg-yellow-600/20 border border-yellow-500/30 text-yellow-400 rounded-full text-[10px] font-medium">
+                                        🚧 Under Development
+                                    </span>
+                                )}
+
+                                {useAgentMode && (
+                                    <span className="px-2 py-0.5 bg-yellow-600/20 border border-yellow-500/30 text-yellow-400 rounded-full text-[10px] font-medium">
+                                        🚧 Under Development
+                                    </span>
+                                )}
                             </div>
 
                             <div className="flex gap-3">

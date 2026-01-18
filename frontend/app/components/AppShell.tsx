@@ -120,36 +120,32 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }, [router]);
 
     return (
-        <div className="min-h-screen bg-black text-gray-100 font-sans">
-            {/* Header */}
-            <header className="bg-black/80 backdrop-blur-md border-b border-white/10 sticky top-0 z-[100]">
-                <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-                    <div className="flex items-center space-x-2">
-                        <ShodhLogo className="w-6 h-6" />
-                        <h1 className="text-xl font-bold text-white">Shodh (शोध)</h1>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <NotificationBell ingestionStatus={ingestionStatus} />
-                        <button onClick={() => fetchFeed()} className="p-2 hover:bg-neutral-800 rounded-full transition text-gray-400 hover:text-white" title="Refresh Feed">
-                            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-                        </button>
-                    </div>
+        <div className="min-h-screen bg-black text-gray-100 font-sans flex">
+            {/* Sidebar - Mercor Style: Fixed width, icon-over-label */}
+            <aside className="fixed left-0 top-0 h-screen w-20 bg-neutral-950 border-r border-white/5 flex flex-col z-[90]">
+                {/* Sidebar Header: Logo */}
+                <div className="h-16 flex items-center justify-center border-b border-white/5">
+                    <ShodhLogo className="w-9 h-9" />
                 </div>
-            </header>
 
-            {/* Sidebar */}
-            <aside className={`fixed left-0 top-16 h-[calc(100vh-4rem)] bg-neutral-900 border-r border-white/10 flex flex-col transition-all duration-300 ease-in-out z-[90] ${sidebarOpen ? 'w-64' : 'w-16'}`}>
-                <nav className="flex-1 space-y-2 p-2">
+                {/* Navigation - Vertical icon + label layout */}
+                <nav className="flex-1 flex flex-col items-center py-4 gap-1">
                     <button
                         onClick={() => {
                             setSelectedProject(null);
                             router.push('/');
                         }}
-                        title="Research Discovery"
-                        className={`w-full flex items-center py-3 rounded-lg transition-all ${sidebarOpen ? 'gap-3 px-3' : 'justify-center px-2'} ${pathname === '/' ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-indigo-500/20' : 'text-gray-400 hover:bg-neutral-800 hover:text-white'}`}
+                        title="Explore"
+                        className={`group flex flex-col items-center gap-1 py-3 px-2 w-full transition-all relative ${pathname === '/'
+                            ? 'text-indigo-400'
+                            : 'text-gray-500 hover:text-gray-300'
+                            }`}
                     >
-                        <Compass className="w-5 h-5 flex-shrink-0" />
-                        <span className={`transition-opacity duration-200 ${sidebarOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>Research Discovery</span>
+                        {pathname === '/' && (
+                            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-indigo-500 rounded-r-full" />
+                        )}
+                        <Compass className={`w-6 h-6 transition-transform group-hover:scale-110 ${pathname === '/' ? 'text-indigo-400' : ''}`} />
+                        <span className={`text-[10px] font-medium ${pathname === '/' ? 'text-indigo-400' : ''}`}>Explore</span>
                     </button>
 
                     <button
@@ -157,75 +153,69 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                             setSelectedProject(null);
                             router.push('/favorites');
                         }}
-                        title="Personal Collection"
-                        className={`w-full flex items-center py-3 rounded-lg transition-all ${sidebarOpen ? 'gap-3 px-3' : 'justify-center px-2'} ${pathname === '/favorites' ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-indigo-500/20' : 'text-gray-400 hover:bg-neutral-800 hover:text-white'}`}
+                        title="Favorites"
+                        className={`group flex flex-col items-center gap-1 py-3 px-2 w-full transition-all relative ${pathname === '/favorites'
+                            ? 'text-indigo-400'
+                            : 'text-gray-500 hover:text-gray-300'
+                            }`}
                     >
-                        <Heart className="w-5 h-5 flex-shrink-0" />
-                        <span className={`transition-opacity duration-200 ${sidebarOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>Personal Collection</span>
+                        {pathname === '/favorites' && (
+                            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-indigo-500 rounded-r-full" />
+                        )}
+                        <Heart className={`w-6 h-6 transition-transform group-hover:scale-110 ${pathname === '/favorites' ? 'text-indigo-400' : ''}`} />
+                        <span className={`text-[10px] font-medium ${pathname === '/favorites' ? 'text-indigo-400' : ''}`}>Favorites</span>
                     </button>
 
                     <button
                         onClick={() => router.push('/projects')}
-                        title="Synthesis Hub"
-                        className={`w-full flex items-center py-3 rounded-lg transition-all ${sidebarOpen ? 'gap-3 px-3' : 'justify-center px-2'} ${pathname.startsWith('/projects') ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-indigo-500/20' : 'text-gray-400 hover:bg-neutral-800 hover:text-white'}`}
+                        title="Projects"
+                        className={`group flex flex-col items-center gap-1 py-3 px-2 w-full transition-all relative ${pathname.startsWith('/projects')
+                            ? 'text-indigo-400'
+                            : 'text-gray-500 hover:text-gray-300'
+                            }`}
                     >
-                        <FolderArchive className="w-5 h-5 flex-shrink-0" />
-                        <span className={`transition-opacity duration-200 ${sidebarOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>Synthesis Hub</span>
+                        {pathname.startsWith('/projects') && (
+                            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-indigo-500 rounded-r-full" />
+                        )}
+                        <FolderArchive className={`w-6 h-6 transition-transform group-hover:scale-110 ${pathname.startsWith('/projects') ? 'text-indigo-400' : ''}`} />
+                        <span className={`text-[10px] font-medium ${pathname.startsWith('/projects') ? 'text-indigo-400' : ''}`}>Projects</span>
                     </button>
-
-                    {/* Recent Projects */}
-                    {sidebarOpen && projects.length > 0 && (
-                        <div className="mt-4 px-3 py-2">
-                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 px-1">Recent Projects</p>
-                            <div className="space-y-1">
-                                {projects.slice(0, 5).map(proj => (
-                                    <button
-                                        key={proj.id}
-                                        onClick={() => {
-                                            setSelectedProject(proj);
-                                            setSidebarOpen(false);
-                                            // Force navigation to projects page if not already there, 
-                                            // but typically selecting a project should open it.
-                                            // For now, let's just go to /projects which will show the selected project
-                                            router.push('/projects');
-                                        }}
-                                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors ${pathname.startsWith('/projects') && selectedProject?.id === proj.id ? 'bg-indigo-600/20 text-indigo-400 font-medium' : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'}`}
-                                    >
-                                        <div className={`w-1.5 h-1.5 rounded-full ${selectedProject?.id === proj.id ? 'bg-indigo-500' : 'bg-neutral-600'}`} />
-                                        <span className="truncate">{proj.name}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    )}
                 </nav>
 
-                {/* Sidebar Footer */}
-                <div className="p-2 border-t border-white/10 space-y-1">
+                {/* Sidebar Footer: Utilities */}
+                <div className="flex flex-col items-center gap-2 py-4 border-t border-white/5">
+                    {/* Notification Bell */}
+                    <NotificationBell ingestionStatus={ingestionStatus} />
+
+                    {/* Refresh - Only on Explore page */}
+                    {pathname === '/' && (
+                        <button
+                            onClick={() => fetchFeed()}
+                            className="group flex flex-col items-center gap-1 py-2 px-2 text-gray-500 hover:text-gray-300 transition-all"
+                            title="Refresh Feed"
+                        >
+                            <RefreshCw className={`w-5 h-5 transition-transform group-hover:scale-110 ${loading ? 'animate-spin text-indigo-400' : ''}`} />
+                        </button>
+                    )}
+
+                    {/* Settings */}
                     <button
                         onClick={() => setSettingsOpen(true)}
-                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-gray-400 hover:bg-neutral-800 hover:text-white transition-all ${!sidebarOpen ? 'justify-center' : ''}`}
+                        className="group flex flex-col items-center gap-1 py-2 px-2 text-gray-500 hover:text-gray-300 transition-all"
                         title="Settings"
                     >
-                        <Settings className="w-5 h-5" />
-                        <span className={`transition-opacity duration-200 ${sidebarOpen ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>Settings</span>
-                    </button>
-                    <button
-                        onClick={toggleSidebar}
-                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-gray-400 hover:bg-neutral-800 hover:text-white transition-all ${!sidebarOpen ? 'justify-center' : ''}`}
-                    >
-                        {sidebarOpen ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                        <Settings className="w-5 h-5 transition-transform group-hover:rotate-90" />
                     </button>
                 </div>
             </aside>
 
             {/* Main Content */}
-            <main className={`transition-all duration-300 ease-in-out ${sidebarOpen ? 'ml-64' : 'ml-16'} ${pathname.startsWith('/paper/') ? '' : 'px-4 py-8'}`}>
+            <main className={`flex-1 transition-all duration-300 ease-in-out ml-20 ${pathname.startsWith('/paper/') ? '' : 'px-4 py-8'}`}>
                 {children}
 
                 {/* Ideas/Visualization Modal */}
                 {viewMode !== 'none' && activePaper && (
-                    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+                    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[110] flex items-center justify-center p-4">
                         <div className="bg-neutral-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
                             <div className="p-6 border-b border-white/10 flex justify-between items-center bg-black/40">
                                 <div className="flex-1 pr-4">

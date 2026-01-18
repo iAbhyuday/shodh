@@ -10,6 +10,13 @@ For production, run multiple workers:
     python -m src.worker &
 """
 import logging
+import os
+import certifi
+
+# Fix frequency SSL errors on macOS/Python environments
+os.environ['SSL_CERT_FILE'] = certifi.where()
+os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
+
 from rq import Worker, Queue, SimpleWorker
 from src.jobs.queue import get_redis_connection, is_redis_available
 

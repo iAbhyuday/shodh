@@ -2,6 +2,7 @@ import os
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
+
 class Settings(BaseSettings):
     APP_NAME: str = "Shodh"
     API_V1_STR: str = "/api/v1"
@@ -15,29 +16,29 @@ class Settings(BaseSettings):
     # LLM Configuration
     OPENAI_API_KEY: str | None = None
     GEMINI_API_KEY: str | None = None
-    OLLAMA_BASE_URL: str = "http://139.10.175.183:11434"
-    OLLAMA_MODEL: str = "qwen2.5:7b"
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "gpt-oss:20b"
     
-    # Vector DB
-    VECTOR_DB_PATH: str = "./chroma_db"
-    COLLECTION_NAME: str = "research_papers"
-    VECTOR_DB_HOST: str | None = None
-    VECTOR_DB_PORT: int = 8000
+    # Qdrant (Vector Database)
+    VECTOR_STORE_PROVIDER: str = "qdrant"
+    QDRANT_HOST: str = "localhost"
+    QDRANT_PORT: int = 6333
+    QDRANT_COLLECTION: str = "research_papers"
     
-    # SQL Database
-    DATABASE_URL: str = "sqlite:///./shodh.db"
+    # SQL Database (PostgreSQL)
+    DATABASE_URL: str = "postgresql://shodh:shodh_dev@localhost:5432/shodh"
     
     # HuggingFace
     HF_TOKEN: str | None = None
 
     # Embeddings & Crew Models
-    LLM_PROVIDER: str = "gemini"  # ollama, openai, azure_openai, gemini
+    LLM_PROVIDER: str = "ollama"  # ollama, openai, azure_openai, gemini
     EMBEDDING_PROVIDER: str = "ollama" # ollama, openai, azure_openai, gemini
     
     # Ollama Defaults
     EMBEDDING_MODEL: str = "nomic-embed-text:v1.5"
-    CREW_LLM_SMALL: str = "gemini-2.5-flash"  # Defaults for Gemini if provider is Gemini
-    CREW_LLM_LARGE: str = "gemini-2.5-flash"
+    CREW_LLM_SMALL: str = "qwen2.5:7b"
+    CREW_LLM_LARGE: str = "qwen2.5:7b"
     
     # OpenAI
     OPENAI_MODEL: str = "gpt-4o"
@@ -63,8 +64,6 @@ class Settings(BaseSettings):
 
     # Job Queue (Redis)
     REDIS_URL: str = "redis://localhost:6379/0"
-
-    # CHROMA_PERSIST_PATH is removed in favor of VECTOR_DB_PATH
 
     model_config = {
         "env_file": ".env",

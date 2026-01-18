@@ -27,8 +27,11 @@ class PaperTool(BaseTool):
         Returns paper outline.
         """
         db = SessionLocal()
-        result = db.get(PaperStructure, paper_id)
-        if result:
-            return result.outline
-        else:
-            return "No outline found."
+        try:
+            result = db.get(PaperStructure, paper_id)
+            if result:
+                return result.outline
+            else:
+                return "No outline found."
+        finally:
+            db.close()

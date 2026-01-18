@@ -108,6 +108,12 @@ export default function ProjectsPage() {
     });
 
     // --- Effects ---
+
+    // Set page title
+    useEffect(() => {
+        document.title = 'Shodh | Projects';
+    }, []);
+
     useEffect(() => {
         fetchProjects();
     }, [fetchProjects]);
@@ -123,7 +129,7 @@ export default function ProjectsPage() {
         router.push(`/paper/${paper.id}`);
     }, [router]);
 
-    const handleAddPaperToProject = useCallback(async (projectId: number, paperId: string, paperTitle?: string, paper?: Paper) => {
+    const handleAddPaperToProject = useCallback(async (projectId: string, paperId: string, paperTitle?: string, paper?: Paper) => {
         // We need to find the paper object. If we are in Project View, the paper is in `projectPapers`.
         const targetPaper = paper || projectPapers.find(p => p.id === paperId);
         if (!targetPaper) return;

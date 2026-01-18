@@ -149,4 +149,41 @@ class LLMFactory:
                 temperature=0.1
             )
 
-
+    @classmethod
+    def get_langchain_llm(cls, streaming: bool = True, model_name: Optional[str] = None):
+        """Get LangChain compatible LLM for chat chains."""
+        provider = cls.get_llm_provider()
+        settings = get_settings()
+        
+        try:
+            if provider == "ollama":
+                from langchain_ollama import ChatOllama
+                return ChatOllama(
+                    model=model_name or settings.OLLAMA_MODEL,
+                    base_url=settings.OLLAMA_BASE_URL,
+                    temperature=0.7,
+                    streaming=streaming
+                )
+            elif provider == "openai":
+                from langchain_openai import ChatOpenAI
+                return ChatOpenAI(
+                    model=model_name or settings.OPENAI_MODEL,
+                    api_key=settings.OPENAI_API_KEY,
+                    streaming=streaming,
+                    temperature=0.7
+                )
+            elif provider == "gemini":
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                # Clean model name (strip 'models/' prefix if present)
+                clean_model = (model_name or settings.GEMINI_MODEL).replace('models/', '')
+                return ChatGoogleGenerativeAI(
+                    model=clean_model,
+                    google_api_key=settings.GEMINI_API_KEY,
+                    streaming=streaming,
+                    temperature=0.7
+                )
+            else:
+                raise ValueError(f"Unknown LLM provider for LangChain: {provider}")
+        except ImportError as e:
+            logger.error(f"Failed to import LangChain provider {provider}: {e}")
+            raise

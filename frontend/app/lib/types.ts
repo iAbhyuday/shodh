@@ -18,12 +18,12 @@ export type Paper = {
     github_url?: string;
     project_page?: string;
     thumbnail?: string;
-    project_ids?: number[];
+    project_ids?: string[];
     ingestion_status?: string;
 };
 
 export type Project = {
-    id: number;
+    id: string;
     name: string;
     description: string | null;
     research_dimensions: string | null;
@@ -47,9 +47,9 @@ export type ChatMessage = {
 };
 
 export type Conversation = {
-    id: number;
+    id: string;
     paper_id?: string;
-    project_id?: number;
+    project_id?: string;
     title: string;
     created_at: string;
     message_count: number;
@@ -61,6 +61,7 @@ export type IngestionStatus = {
     title?: string;
     progress?: number;
     step?: string;
+    error?: string;
 };
 
 export type SortOption = "date_desc" | "date_asc" | "title_asc" | "title_desc";

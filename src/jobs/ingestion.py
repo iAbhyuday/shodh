@@ -11,11 +11,12 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
-def _update_status(paper_id: str, status: str, chunk_count: int = None, pdf_path: str = None, error_message: str = None):
+def _update_status(paper_id: str, status: str, chunk_count: int = None, pdf_path: str = None, error_message: str = None, title: str = None):
     """Helper to safely update paper status in a new transaction."""
     from src.db.sql_db import SessionLocal, UserPaper
     
     db = SessionLocal()
+    paper_title = title
     try:
         paper = db.query(UserPaper).filter(UserPaper.paper_id == paper_id).first()
         if paper:
@@ -29,9 +30,40 @@ def _update_status(paper_id: str, status: str, chunk_count: int = None, pdf_path
             
             if status == "completed":
                 paper.ingested_at = datetime.utcnow()
+            
+            # Capture title for SSE event
+            paper_title = paper.title or paper_title
                 
             db.commit()
             logger.info("Status updated", extra={"paper_id": paper_id, "status": status})
+            
+            # Emit SSE Event via Redis Pub/Sub
+            try:
+                from src.events.publisher import publish_ingestion_event
+                
+                # Calculate progress for event
+                progress_map = {
+                    "pending": 0,
+                    "queued": 5,
+                    "downloading": 15,
+                    "parsing": 45,
+                    "indexing": 75,
+                    "completed": 100,
+                    "failed": 100
+                }
+                progress = progress_map.get(status, 50)
+                
+                publish_ingestion_event(
+                    paper_id=paper_id,
+                    status=status,
+                    progress=progress,
+                    step=status,
+                    title=paper_title or "",
+                    error=error_message
+                )
+            except Exception as sse_err:
+                # Don't fail the ingestion if SSE fails
+                logger.warning(f"Failed to publish SSE event: {sse_err}")
         else:
             logger.warning("Paper not found for status update", extra={"paper_id": paper_id, "status": status})
     except Exception as e:

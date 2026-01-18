@@ -1,10 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import os
+import certifi
+
+# Fix frequency SSL errors on macOS/Python environments
+os.environ['SSL_CERT_FILE'] = certifi.where()
+os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
 
 from src.core.config import get_settings
 from src.core.logging import setup_logging, get_logger
 from src.db.sql_db import init_db
-from src.api.routes import papers, chat, ideas, projects, settings
+from src.api.routes import papers, chat, ideas, projects, settings, events, figures
 
 # Initialize logging first
 _settings = get_settings()
@@ -50,7 +56,10 @@ app.include_router(papers.router, prefix="/api", tags=["papers"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(ideas.router, prefix="/api", tags=["ideas"])
 app.include_router(projects.router, prefix="/api", tags=["projects"])
-app.include_router(settings.router, prefix="/api", tags=["settings"]) # Hot reload trigger
+app.include_router(settings.router, prefix="/api", tags=["settings"])
+app.include_router(events.router, prefix="/api", tags=["events"])  # SSE events
+app.include_router(figures.router, tags=["figures"])  
+
 
 @app.middleware("http")
 async def log_requests(request, call_next):

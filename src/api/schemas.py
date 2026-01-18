@@ -24,31 +24,25 @@ class PaperActionRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     paper_id: Optional[str] = None
-    project_id: Optional[int] = None
+    project_id: Optional[str] = None
     message: str
-    conversation_id: Optional[int] = None  # If None, creates new conversation
+    conversation_id: Optional[str] = None  # If None, creates new conversation
     history: List[Dict[str, Any]] = []  # Optional chat history (for backward compat)
     use_agent: bool = False  # If True, use Agentic RAG; else use fast Contextual RAG
-
-class ProjectChatRequest(BaseModel):
-    project_id: int
-    message: str
-    conversation_id: Optional[int] = None
-    history: List[Dict[str, Any]] = []
-    use_agent: bool = False
+    use_job: bool = False  # If True, offload to background job (Redis)
 
 
 
 class ConversationCreate(BaseModel):
     paper_id: Optional[str] = None
-    project_id: Optional[int] = None
+    project_id: Optional[str] = None
     title: Optional[str] = None
 
 
 class ConversationResponse(BaseModel):
-    id: int
+    id: str
     paper_id: Optional[str] = None
-    project_id: Optional[int] = None
+    project_id: Optional[str] = None
     title: Optional[str]
     created_at: str
     message_count: int = 0
@@ -77,7 +71,7 @@ class ProjectUpdate(BaseModel):
     research_dimensions: Optional[str] = None
 
 class ProjectResponse(BaseModel):
-    id: int
+    id: str
     name: str
     description: Optional[str]
     research_dimensions: Optional[str] = None

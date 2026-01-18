@@ -1,6 +1,6 @@
 // Projects Store - manages projects, creation, and paper assignments
 import { create } from 'zustand';
-import { projectsApi, papersApi } from '../lib/api-client';
+import { projectsApi } from '../lib/api-client';
 import type { Project, Paper } from '../lib/types';
 
 interface ProjectsState {
@@ -20,12 +20,12 @@ interface ProjectsState {
     setNewProjectName: (name: string) => void;
     setNewProjectDimensions: (dimensions: string) => void;
     fetchProjects: () => Promise<void>;
-    fetchProjectPapers: (projectId: number) => Promise<Paper[]>;
+    fetchProjectPapers: (projectId: string) => Promise<Paper[]>;
     createProject: () => Promise<void>;
     updateProject: () => Promise<void>;
-    deleteProject: (projectId: number) => Promise<void>;
-    addPaperToProject: (projectId: number, paperId: string, title?: string, summary?: string, authors?: string, url?: string, published_date?: string, thumbnail?: string, tags?: string[], github_url?: string, project_page?: string) => Promise<void>;
-    removePaperFromProject: (projectId: number, paperId: string) => Promise<void>;
+    deleteProject: (projectId: string) => Promise<void>;
+    addPaperToProject: (projectId: string, paperId: string, title?: string, summary?: string, authors?: string, url?: string, published_date?: string, thumbnail?: string, tags?: string[], github_url?: string, project_page?: string) => Promise<void>;
+    removePaperFromProject: (projectId: string, paperId: string) => Promise<void>;
 }
 
 export const useProjectsStore = create<ProjectsState>((set, get) => ({

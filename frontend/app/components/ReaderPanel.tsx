@@ -2,31 +2,7 @@ import React from 'react';
 import { ChevronRight, ExternalLink, Code, Lightbulb, MessageSquare, Plus, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
-type Paper = {
-    id: string;
-    title: string;
-    abstract: string;
-    source: string;
-    metrics: {
-        tags?: string[];
-        core_idea?: string;
-        approach?: string[];
-    };
-    url: string;
-    published_date: string;
-    authors: string;
-    is_favorited: boolean;
-    is_saved: boolean;
-    github_url?: string;
-    project_page?: string;
-    thumbnail?: string;
-    project_ids?: number[];
-};
-
-type Project = {
-    id: number;
-    name: string;
-};
+import { Paper, Project } from '../lib/types';
 
 interface ReaderPanelProps {
     paper: Paper | null;
@@ -39,7 +15,7 @@ interface ReaderPanelProps {
     projects?: Project[];
     activeProjectMenu: string | null;
     setActiveProjectMenu: (id: string | null) => void;
-    onAddPaperToProject?: (projectId: number, paperId: string, paperTitle?: string) => void;
+    onAddPaperToProject?: (projectId: string, paperId: string, paperTitle?: string) => void;
     onCreateProject?: () => void;
 }
 
@@ -98,8 +74,8 @@ const ReaderPanel: React.FC<ReaderPanelProps> = ({
                                                             setActiveProjectMenu(null);
                                                         }}
                                                         className={`w-full text-left px-3 py-2 text-xs rounded-lg transition-all flex items-center justify-between group/item ${paper.project_ids?.includes(p.id)
-                                                                ? 'bg-indigo-500/20 text-indigo-300 hover:bg-red-500/20 hover:text-red-300'
-                                                                : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                                                            ? 'bg-indigo-500/20 text-indigo-300 hover:bg-red-500/20 hover:text-red-300'
+                                                            : 'text-gray-300 hover:bg-white/5 hover:text-white'
                                                             }`}
                                                     >
                                                         {p.name}

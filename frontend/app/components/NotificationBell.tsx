@@ -37,7 +37,7 @@ export default function NotificationBell({ ingestionStatus }: NotificationBellPr
                     {/* Backdrop to close on click outside */}
                     <div className="fixed inset-0 z-[110]" onClick={() => setIsOpen(false)} />
 
-                    <div className="absolute right-0 mt-2 w-80 bg-neutral-900 border border-white/10 rounded-xl shadow-2xl z-[120] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                    <div className="absolute left-full bottom-0 ml-2 w-80 bg-neutral-900 border border-white/10 rounded-xl shadow-2xl z-[120] overflow-hidden animate-in fade-in slide-in-from-left-2 duration-200">
                         <div className="p-3 border-b border-white/10 flex justify-between items-center bg-black/40">
                             <h3 className="text-sm font-bold text-white">Activity</h3>
                             {hasActive && (

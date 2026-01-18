@@ -114,7 +114,7 @@ export const papersApi = {
 export const projectsApi = {
     list: (): Promise<Project[]> => fetchApi('/projects'),
 
-    get: (projectId: number): Promise<{ papers: Paper[] }> =>
+    get: (projectId: string): Promise<{ papers: Paper[] }> =>
         fetchApi(`/projects/${projectId}`),
 
     create: (name: string, researchDimensions?: string): Promise<Project> =>
@@ -126,7 +126,7 @@ export const projectsApi = {
             }),
         }),
 
-    update: (projectId: number, name?: string, researchDimensions?: string): Promise<Project> =>
+    update: (projectId: string, name?: string, researchDimensions?: string): Promise<Project> =>
         fetchApi(`/projects/${projectId}`, {
             method: 'PUT',
             body: JSON.stringify({
@@ -135,10 +135,10 @@ export const projectsApi = {
             }),
         }),
 
-    delete: (projectId: number): Promise<void> =>
+    delete: (projectId: string): Promise<void> =>
         fetchApi(`/projects/${projectId}`, { method: 'DELETE' }),
 
-    addPaper: (projectId: number, paperId: string, title?: string, summary?: string, authors?: string, url?: string, published_date?: string, thumbnail?: string, tags?: string[], github_url?: string, project_page?: string): Promise<void> =>
+    addPaper: (projectId: string, paperId: string, title?: string, summary?: string, authors?: string, url?: string, published_date?: string, thumbnail?: string, tags?: string[], github_url?: string, project_page?: string): Promise<void> =>
         fetchApi(`/projects/${projectId}/add-paper`, {
             method: 'POST',
             body: JSON.stringify({
@@ -155,21 +155,21 @@ export const projectsApi = {
             }),
         }),
 
-    removePaper: (projectId: number, paperId: string): Promise<void> =>
+    removePaper: (projectId: string, paperId: string): Promise<void> =>
         fetchApi(`/projects/${projectId}/paper/${paperId}`, { method: 'DELETE' }),
 };
 
 // --- Conversations API ---
 
 export const conversationsApi = {
-    list: (params: { paper_id?: string; project_id?: number }): Promise<Conversation[]> => {
+    list: (params: { paper_id?: string; project_id?: string }): Promise<Conversation[]> => {
         const queryParams: Record<string, string> = {};
         if (params.paper_id) queryParams.paper_id = params.paper_id;
-        if (params.project_id) queryParams.project_id = String(params.project_id);
+        if (params.project_id) queryParams.project_id = params.project_id;
         return fetchApi('/conversations', { params: queryParams });
     },
 
-    getMessages: (conversationId: number): Promise<ChatMessage[]> =>
+    getMessages: (conversationId: string): Promise<ChatMessage[]> =>
         fetchApi(`/conversations/${conversationId}/messages`),
 };
 
@@ -178,14 +178,15 @@ export const conversationsApi = {
 export const chatApi = {
     sendMessage: async (payload: {
         message: string;
-        conversation_id?: number | null;
+        conversation_id?: string | null;
         paper_id?: string;
-        project_id?: number;
+        project_id?: string;
         history?: ChatMessage[];
         use_agent?: boolean;
-    }): Promise<Response> => {
-        const endpoint = payload.project_id ? '/project-chat' : '/chat';
-        const response = await fetch(`${API_URL}${endpoint}`, {
+        use_job?: boolean;
+    }): Promise<any> => {
+        // Always use unified /chat endpoint - handles both paper and project chats
+        const response = await fetch(`${API_URL}/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -193,6 +194,14 @@ export const chatApi = {
         if (!response.ok) {
             throw new Error(`Chat API Error: ${response.status}`);
         }
+
+        // If it's a job response, return JSON
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+            return response.json();
+        }
+
+        // Otherwise return stream response
         return response;
     },
 };
@@ -223,4 +232,28 @@ export const ideasApi = {
             method: 'POST',
             body: JSON.stringify({ paper_id: paperId }),
         }),
+};
+
+// --- Figures API ---
+
+export interface FigureData {
+    figure_id: string;
+    paper_id: string;
+    section: string;
+    caption: string;
+    data: string; // base64 PNG
+}
+
+export interface FigureListItem {
+    figure_id: string;
+    caption: string;
+    section: string;
+}
+
+export const figuresApi = {
+    get: (paperId: string, figureId: string): Promise<FigureData> =>
+        fetchApi(`/figures/${paperId}/${figureId}`),
+
+    list: (paperId: string): Promise<FigureListItem[]> =>
+        fetchApi(`/figures/${paperId}`),
 };

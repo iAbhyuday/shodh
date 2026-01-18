@@ -85,6 +85,11 @@ export default function Home() {
 
   // --- Effects ---
 
+  // Set page title
+  useEffect(() => {
+    document.title = 'Shodh | Explore';
+  }, []);
+
   // Initial load & Re-fetch when sort or tags change
   useEffect(() => {
     setCurrentPage(1);
@@ -118,7 +123,7 @@ export default function Home() {
     }
   }, [totalPages, setCurrentPage]);
 
-  const handleAddPaperToProject = useCallback(async (projectId: number, paperId: string, paperTitle?: string, paper?: Paper) => {
+  const handleAddPaperToProject = useCallback(async (projectId: string, paperId: string, paperTitle?: string, paper?: Paper) => {
     // If we have full paper object, we can pass extra metadata
     const targetPaper = paper || feed.find(p => p.id === paperId);
     if (!targetPaper) return; // Should not happen with new signature usually

@@ -2,18 +2,14 @@ from sqlalchemy import create_engine, Column, String, Integer, DateTime, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
+import uuid
 
 from src.core.config import get_settings
 
 # Get database URL from settings (configurable via .env)
 _settings = get_settings()
 
-# SQLite requires special connect_args, PostgreSQL does not
-_connect_args = {}
-if _settings.DATABASE_URL.startswith("sqlite"):
-    _connect_args["check_same_thread"] = False
-
-engine = create_engine(_settings.DATABASE_URL, connect_args=_connect_args)
+engine = create_engine(_settings.DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -53,13 +49,27 @@ class UserPaper(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class Project(Base):
+    """Represents a research collection or project."""
+    __tablename__ = "projects"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
+    name = Column(String, unique=True, index=True)
+    description = Column(String, nullable=True)
+    research_dimensions = Column(Text, nullable=True) # Preliminary info to guide research q&a
+    created_at = Column(DateTime, default=func.now())
+    
+    # Relationship to papers via association table
+    # Defined below after project_papers table
+
+
 class Conversation(Base):
     """Stores chat conversations linked to papers or projects."""
     __tablename__ = "conversations"
     
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     paper_id = Column(String, index=True, nullable=True)  # Links to UserPaper.paper_id
-    project_id = Column(Integer, ForeignKey("projects.id"), index=True, nullable=True)
+    project_id = Column(String, ForeignKey("projects.id"), index=True, nullable=True)
     title = Column(String, nullable=True)  # Auto-generated or user-defined
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -73,7 +83,7 @@ class Message(Base):
     __tablename__ = "messages"
     
     id = Column(Integer, primary_key=True, index=True)
-    conversation_id = Column(Integer, ForeignKey("conversations.id"), index=True)  # Links to Conversation.id
+    conversation_id = Column(String, ForeignKey("conversations.id"), index=True)  # Links to Conversation.id
     role = Column(String)  # 'user' or 'assistant'
     content = Column(Text)
     citations_json = Column(Text, nullable=True)  # JSON array of citation objects
@@ -98,27 +108,19 @@ class Figures(Base):
     caption = Column(String)
     data = Column(String)
 
+
 # --- Projects & Collections ---
 
 project_papers = Table(
     "project_papers",
     Base.metadata,
-    Column("project_id", Integer, ForeignKey("projects.id"), primary_key=True),
+    Column("project_id", String, ForeignKey("projects.id"), primary_key=True),
     Column("paper_id", String, ForeignKey("user_papers.paper_id"), primary_key=True),
 )
 
-class Project(Base):
-    """Represents a research collection or project."""
-    __tablename__ = "projects"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, index=True)
-    description = Column(String, nullable=True)
-    research_dimensions = Column(Text, nullable=True) # Preliminary info to guide research q&a
-    created_at = Column(DateTime, default=func.now())
-    
-    # Relationship to papers via association table
-    papers = relationship("UserPaper", secondary=project_papers, backref="projects")
+# Late binding of relationship
+Project.papers = relationship("UserPaper", secondary=project_papers, backref="projects")
+
 
 def init_db():
     Base.metadata.create_all(bind=engine)

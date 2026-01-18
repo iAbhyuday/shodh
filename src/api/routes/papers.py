@@ -576,15 +576,14 @@ async def get_or_fetch_paper_metadata(paper_id: str, db: Session) -> UserPaper:
         if metadata is None:
             raise HTTPException(status_code=404, detail="Paper not found on ArXiv.")
         
-        # Save to DB
+        # Save to DB (no ingestion_status - set only after successful enqueue)
         paper = UserPaper(
             paper_id=paper_id,
             title=metadata.title,
             authors=metadata.authors,
             summary=metadata.summary,
             url=metadata.url,
-            published_date=metadata.published_date,
-            ingestion_status="pending"
+            published_date=metadata.published_date
         )
         db.add(paper)
         db.commit()

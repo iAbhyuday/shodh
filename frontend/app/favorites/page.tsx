@@ -65,6 +65,12 @@ export default function FavoritesPage() {
     });
 
     // --- Effects ---
+
+    // Set page title
+    useEffect(() => {
+        document.title = 'Shodh | Favorites';
+    }, []);
+
     useEffect(() => {
         fetchFavorites();
     }, [fetchFavorites]);
@@ -74,7 +80,7 @@ export default function FavoritesPage() {
         router.push(`/paper/${paper.id}`);
     }, [router]);
 
-    const handleAddPaperToProject = useCallback(async (projectId: number, paperId: string, paperTitle?: string, paper?: Paper) => {
+    const handleAddPaperToProject = useCallback(async (projectId: string, paperId: string, paperTitle?: string, paper?: Paper) => {
         const targetPaper = paper || feed.find(p => p.id === paperId);
         if (!targetPaper) return;
 
@@ -134,7 +140,7 @@ export default function FavoritesPage() {
             availableTags={[]}
             selectedTags={[]}
             setSelectedTags={() => { }}
-            sortBy="newest"
+            sortBy="date_desc"
             setSortBy={() => { }}
             onTagClick={() => { }}
         />

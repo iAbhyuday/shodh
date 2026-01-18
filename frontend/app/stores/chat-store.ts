@@ -7,26 +7,26 @@ interface ChatState {
     // State
     messages: ChatMessage[];
     conversations: Conversation[];
-    activeConversationId: number | null;
+    activeConversationId: string | null;
     chatInput: string;
     loading: boolean;
     useAgentMode: boolean;
 
     // Actions
     setChatInput: (input: string) => void;
-    setActiveConversationId: (id: number | null) => void;
+    setActiveConversationId: (id: string | null) => void;
     setUseAgentMode: (use: boolean) => void;
     toggleAgentMode: () => void;
     addMessage: (message: ChatMessage) => void;
     updateLastMessage: (updates: Partial<ChatMessage>) => void;
     appendToLastMessage: (content: string) => void;
-    fetchConversations: (params: { paperId?: string; projectId?: number }) => Promise<void>;
-    loadConversation: (conversationId: number) => Promise<void>;
+    fetchConversations: (params: { paperId?: string; projectId?: string }) => Promise<void>;
+    loadConversation: (conversationId: string) => Promise<void>;
     startNewChat: () => void;
     sendMessage: (params: {
         message: string;
         paperId?: string;
-        projectId?: number;
+        projectId?: string;
     }) => Promise<void>;
 }
 

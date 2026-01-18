@@ -15,7 +15,7 @@ interface LibraryViewProps {
     onDeepRead: (paper: Paper) => void;
     onVisualize: (paper: Paper) => void;
     onSelectProject: (project: Project | null) => void;
-    onDeleteProject: (projectId: number) => void;
+    onDeleteProject: (projectId: string) => void;
     onFetchBookmarks: () => void;
     activeEditingProject: Project | null;
     onEditProject: (project: Project | null) => void;

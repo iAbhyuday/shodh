@@ -1,9 +1,10 @@
-// Hook for polling ingestion status from the backend
+// Hook for ingestion status updates - now uses SSE with polling fallback
 import { useEffect, useRef, useCallback } from 'react';
 import { ingestionApi, papersApi } from '../lib/api-client';
+import { useIngestionSSE } from './useIngestionSSE';
 import type { IngestionStatus, Paper } from '../lib/types';
 
-const POLL_INTERVAL = 3000; // 3 seconds
+const POLL_INTERVAL = 10000; // 10 seconds (reduced frequency, SSE is primary)
 
 interface UseIngestionPollingOptions {
     feed: Paper[];
@@ -13,7 +14,23 @@ interface UseIngestionPollingOptions {
 export function useIngestionPolling({ feed, onStatusUpdate }: UseIngestionPollingOptions) {
     const statusRef = useRef<Record<string, IngestionStatus>>({});
 
-    // Sync ingestion status from feed
+    // SSE callback for individual status updates
+    const handleSSEUpdate = useCallback((paperId: string, status: IngestionStatus) => {
+        const next = {
+            ...statusRef.current,
+            [paperId]: status
+        };
+        statusRef.current = next;
+        onStatusUpdate(next);
+    }, [onStatusUpdate]);
+
+    // Connect to SSE for real-time updates
+    useIngestionSSE({
+        onStatusUpdate: handleSSEUpdate,
+        enabled: true
+    });
+
+    // Sync ingestion status from feed (initial load)
     useEffect(() => {
         const next = { ...statusRef.current };
         let changed = false;
@@ -40,7 +57,7 @@ export function useIngestionPolling({ feed, onStatusUpdate }: UseIngestionPollin
         }
     }, [feed, onStatusUpdate]);
 
-    // Poll active jobs from ingestion manager
+    // Fallback polling for SSE failures (reduced frequency)
     useEffect(() => {
         const pollJobs = async () => {
             try {
@@ -56,7 +73,7 @@ export function useIngestionPolling({ feed, onStatusUpdate }: UseIngestionPollin
                     if (!current || current.status !== job.status || current.progress !== job.progress || current.step !== job.step) {
                         next[job.paper_id] = {
                             status: job.status,
-                            chunk_count: job.progress, // Keep for compat, but we prefer progress field
+                            chunk_count: job.progress,
                             progress: job.progress,
                             step: job.step,
                             title: job.title,
@@ -69,7 +86,6 @@ export function useIngestionPolling({ feed, onStatusUpdate }: UseIngestionPollin
                 Object.keys(next).forEach((id) => {
                     if (!activeJobIds.has(id)) {
                         const current = next[id];
-                        // If locally we think it's still running, but it's not in active list -> check final status
                         if (current && ['queued', 'pending', 'processing', 'downloading', 'parsing', 'indexing'].includes(current.status)) {
                             checkPaperStatus(id, current.title);
                         }
@@ -87,11 +103,7 @@ export function useIngestionPolling({ feed, onStatusUpdate }: UseIngestionPollin
 
         const interval = setInterval(pollJobs, POLL_INTERVAL);
         return () => clearInterval(interval);
-    }, [onStatusUpdate]); // checkPaperStatus is stable ref via useCallback? No, need to include it or rely on stable ref. 
-    // It depends on onStatusUpdate.
-    // But checkPaperStatus usage in effect requires it in deps. 
-    // NOTE: Added checkPaperStatus to deps below or relying on eslint-disable? 
-    // Better: add checkPaperStatus to deps.
+    }, [onStatusUpdate]);
 
     // Check status for a specific paper
     const checkPaperStatus = useCallback(async (paperId: string, title?: string) => {

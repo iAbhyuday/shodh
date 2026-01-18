@@ -17,20 +17,20 @@ interface ProjectViewProps {
     onQuickRead: (paper: Paper) => void;
     onDeepRead: (paper: Paper) => void;
     onVisualize?: (paper: Paper) => void;
-    onAddPaperToProject: (projectId: number, paperId: string, paperTitle?: string, paper?: Paper) => void;
+    onAddPaperToProject: (projectId: string, paperId: string, paperTitle?: string, paper?: Paper) => void;
     activeProjectMenu: string | null;
     setActiveProjectMenu: (id: string | null) => void;
     ingestionStatus: Record<string, IngestionStatus>;
     conversations: Conversation[];
-    activeConversationId: number | null;
-    onLoadConversation: (id: number) => void;
+    activeConversationId: string | null;
+    onLoadConversation: (id: string) => void;
     onStartNewChat: () => void;
     chatMessages: ChatMessage[];
     chatInput: string;
     setChatInput: (val: string) => void;
     onSendChatMessage: () => void;
     chatLoading: boolean;
-    onFetchConversations: (params: { paperId?: string; projectId?: number }) => void;
+    onFetchConversations: (params: { paperId?: string; projectId?: string }) => void;
     useAgentMode: boolean;
     onToggleAgentMode: () => void;
 }
@@ -303,16 +303,23 @@ const ProjectView: React.FC<ProjectViewProps> = ({
                                 </div>
                             )}
                         </div>
-                        <div className="p-6 bg-[#0a0a0b] border-t border-white/5 flex gap-4">
-                            <button
-                                onClick={onToggleAgentMode}
-                                className={`p-4 rounded-2xl transition-all border ${useAgentMode
-                                    ? 'bg-purple-600 text-white border-purple-500 shadow-lg shadow-purple-500/20'
-                                    : 'bg-[#161618] text-gray-500 border-white/5 hover:text-white hover:bg-[#1c1c1e]'}`}
-                                title={useAgentMode ? "Agent Mode On" : "Enable Agent Mode"}
-                            >
-                                <Brain className="w-5 h-5" />
-                            </button>
+                        <div className="p-6 bg-[#0a0a0b] border-t border-white/5 flex gap-4 items-center">
+                            <div className="relative group">
+                                <button
+                                    onClick={onToggleAgentMode}
+                                    className={`p-4 rounded-2xl transition-all border ${useAgentMode
+                                        ? 'bg-purple-600 text-white border-purple-500 shadow-lg shadow-purple-500/20'
+                                        : 'bg-[#161618] text-gray-500 border-white/5 hover:text-white hover:bg-[#1c1c1e]'}`}
+                                    title={useAgentMode ? "Agent Mode (under development)" : "Enable Agent Mode"}
+                                >
+                                    <Brain className="w-5 h-5" />
+                                </button>
+                                {useAgentMode && (
+                                    <span className="absolute -top-2 -right-2 px-1.5 py-0.5 bg-yellow-600/90 text-[8px] font-bold text-white rounded-full">
+                                        🚧
+                                    </span>
+                                )}
+                            </div>
                             <input
                                 type="text"
                                 value={chatInput}
