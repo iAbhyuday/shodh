@@ -9,6 +9,7 @@ requests
 beautifulsoup4
 huggingface_hub
 sqlalchemy
+alembic
 
 # PDF Ingestion Pipeline
 docling

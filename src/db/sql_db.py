@@ -161,7 +161,10 @@ def get_default_user_id() -> int:
 
 
 def init_db():
-    Base.metadata.create_all(bind=engine)
+    # Managed deployments apply schema via Alembic and set AUTO_CREATE_TABLES=False;
+    # local/dev keeps the zero-friction create_all path.
+    if get_settings().AUTO_CREATE_TABLES:
+        Base.metadata.create_all(bind=engine)
     # Ensure the default single-user tenant exists so every row can carry a user_id.
     db = SessionLocal()
     try:

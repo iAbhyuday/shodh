@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # Relational DB. SQLite by default; set a Postgres URL for a shared/scaled
     # deployment, e.g. postgresql+psycopg://user:pass@host:5432/shodh
     DATABASE_URL: str = "sqlite:///./shodh.db"
+    # Create tables on startup (convenient for local/dev). Set False for managed
+    # deployments that apply schema via `alembic upgrade head`.
+    AUTO_CREATE_TABLES: bool = True
 
     # Vector DB
     VECTOR_DB_PATH: str = "./chroma_db"

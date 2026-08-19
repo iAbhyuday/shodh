@@ -19,8 +19,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt ./
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Application code.
+# Application code + migrations.
 COPY src ./src
+COPY alembic.ini ./
+COPY migrations ./migrations
 
 EXPOSE 8000
 
