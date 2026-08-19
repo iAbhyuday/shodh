@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     # CORS: comma-separated list of allowed frontend origins.
     CORS_ORIGINS: str = "http://localhost:3000"
 
+    # Agent engine for use_agent chat:
+    #   crew  -> the CrewAI multi-agent crew (non-streaming) [default]
+    #   loop  -> the streaming turn/step agent loop
+    AGENT_ENGINE: str = "crew"
+
     # Authentication.
     #   single_user  -> every request maps to the built-in default tenant (no auth)
     #   jwt          -> requests must carry a Bearer JWT signed with AUTH_JWT_SECRET

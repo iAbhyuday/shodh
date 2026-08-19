@@ -193,14 +193,62 @@ async def chat_with_paper(request: ChatRequest, db: Session = Depends(get_db)):
             citations = []
             mode = "contextual"
 
-            if request.use_agent:
-                # === AGENTIC RAG (Non-streaming for Project Synthesis) ===
+            if request.use_agent and settings.AGENT_ENGINE == "loop":
+                # === AGENTIC RAG via the streaming turn/step loop ===
+                mode = "agent"
+                from src.core.tools import ToolRegistry, PaperSearchTool
+                from src.core.agent_loop import run_agent_turn, RetrieveThenAnswerClient
+                from src.core.async_bridge import stream_sync_generator
+
+                # Citations (for the metadata line) from a multi-paper retrieval.
+                retrieved = await retriever.aquery(query_text=request.message, paper_id=paper_ids, top_k=5)
+                for chunk in retrieved:
+                    citations.append({
+                        "content": chunk['content'],
+                        "section": chunk['metadata'].get('section_type', 'unknown'),
+                        "paper_id": chunk['metadata'].get('paper_id', 'unknown'),
+                        "score": chunk.get('score', 0),
+                    })
+                yield json.dumps({"conversation_id": conversation_id, "citations": citations, "mode": mode}) + "\n"
+
+                # Model-visible history is DERIVED FROM THE SESSION LOG.
+                messages = session_log.derive_messages(session_log.get_events(db, conversation_id)) \
+                    or [{"role": "user", "content": request.message}]
+
+                registry = ToolRegistry()
+                registry.register(PaperSearchTool(paper_ids))
+                client = RetrieveThenAnswerClient(LLMFactory.get_llama_index_llm())
+
+                tool_events = []  # collected in the worker thread; persisted after streaming
+
+                def _make_gen():
+                    return run_agent_turn(
+                        client, registry, messages,
+                        on_event=lambda t, p: tool_events.append((t, p)),
+                        max_steps=3,
+                    )
+
+                async for token in stream_sync_generator(_make_gen):
+                    final_response_text += token
+                    yield token
+
+                # Persist the tool_call/tool_result events to the log.
+                if tool_events:
+                    ev_db = SessionLocal()
+                    try:
+                        for _t, _p in tool_events:
+                            _log_event(session_log.append_event, ev_db, conversation_id, _t, _p)
+                    finally:
+                        ev_db.close()
+
+            elif request.use_agent:
+                # === AGENTIC RAG (CrewAI crew, non-streaming) ===
                 mode = "agent"
                 from src.agents.paper_crew import run_paper_crew
-                
+
                 # Use first paper for Agent if deep-dive, else generic synthesis
                 target_paper_id = request.paper_id if request.paper_id else paper_ids[0]
-                
+
                 response_text = await run_in_threadpool(
                     run_paper_crew,
                     paper_id=target_paper_id,
