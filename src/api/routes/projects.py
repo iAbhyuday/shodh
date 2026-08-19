@@ -3,16 +3,17 @@ from fastapi import APIRouter, HTTPException, Depends, Body, BackgroundTasks
 from sqlalchemy.orm import Session
 import logging
 
-from src.db.sql_db import get_db, UserPaper, Project
+from src.db.sql_db import get_db, UserPaper, Project, User
+from src.core.auth import get_current_user
 from src.api.schemas import ProjectCreate, ProjectResponse, ProjectAddPaperRequest
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 @router.get("/projects", response_model=List[ProjectResponse])
-def list_projects(db: Session = Depends(get_db)):
-    """List all research projects."""
-    projects = db.query(Project).all()
+def list_projects(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """List the current user's research projects."""
+    projects = db.query(Project).filter(Project.user_id == user.id).all()
     return [
         ProjectResponse(
             id=p.id,
@@ -25,13 +26,16 @@ def list_projects(db: Session = Depends(get_db)):
     ]
 
 @router.post("/projects", response_model=ProjectResponse)
-def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
-    """Create a new research project."""
-    existing = db.query(Project).filter(Project.name == project.name).first()
+def create_project(project: ProjectCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Create a new research project owned by the current user."""
+    existing = db.query(Project).filter(
+        Project.user_id == user.id, Project.name == project.name
+    ).first()
     if existing:
         raise HTTPException(status_code=400, detail="Project with this name already exists.")
-    
+
     new_project = Project(
+        user_id=user.id,
         name=project.name,
         description=project.description,
         research_dimensions=project.research_dimensions
@@ -39,7 +43,7 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     db.add(new_project)
     db.commit()
     db.refresh(new_project)
-    
+
     return ProjectResponse(
         id=new_project.id,
         name=new_project.name,
@@ -50,9 +54,11 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     )
 
 @router.get("/projects/{project_id}")
-def get_project(project_id: int, db: Session = Depends(get_db)):
+def get_project(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Get project details and paper list."""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = db.query(Project).filter(
+        Project.id == project_id, Project.user_id == user.id
+    ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
     
@@ -84,17 +90,20 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
 
 @router.post("/projects/{project_id}/add-paper")
 def add_paper_to_project(
-    project_id: int, 
+    project_id: int,
     request: ProjectAddPaperRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
 ):
     """Link a paper to a project using its paper_id (arxiv id)."""
     from src.api.routes.papers import background_ingest_paper
     logger.info(f"Paper details: {request}")
-    
+
     paper_id = request.paper_id
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = db.query(Project).filter(
+        Project.id == project_id, Project.user_id == user.id
+    ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
     
@@ -105,6 +114,7 @@ def add_paper_to_project(
             logger.info(f"Creating new paper record for {paper_id} with provided title.")
             paper = UserPaper(
                 paper_id=paper_id,
+                user_id=user.id,
                 title=request.title,
                 authors=request.authors or "Unknown",
                 summary=request.summary or "",
@@ -139,6 +149,7 @@ def add_paper_to_project(
                 try:
                     paper = UserPaper(
                         paper_id=paper_id,
+                        user_id=user.id,
                         title=title,
                         authors=authors,
                         summary=summary,
@@ -200,9 +211,11 @@ def add_paper_to_project(
     return {"message": f"Added paper '{paper.title}' to project '{project.name}' and triggered ingestion."}
 
 @router.delete("/projects/{project_id}/remove-paper/{paper_db_id}")
-def remove_paper_from_project(project_id: int, paper_db_id: int, db: Session = Depends(get_db)):
+def remove_paper_from_project(project_id: int, paper_db_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Unlink a paper from a project using its DB primary key."""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = db.query(Project).filter(
+        Project.id == project_id, Project.user_id == user.id
+    ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
     
@@ -218,9 +231,11 @@ def remove_paper_from_project(project_id: int, paper_db_id: int, db: Session = D
     return {"message": "Paper was not in project."}
 
 @router.delete("/projects/{project_id}/paper/{paper_id}")
-def remove_paper_by_id(project_id: int, paper_id: str, db: Session = Depends(get_db)):
+def remove_paper_by_id(project_id: int, paper_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Unlink a paper from a project using its ArXiv ID."""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = db.query(Project).filter(
+        Project.id == project_id, Project.user_id == user.id
+    ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
     
@@ -236,9 +251,11 @@ def remove_paper_by_id(project_id: int, paper_id: str, db: Session = Depends(get
     return {"message": "Paper was not in project."}
 
 @router.delete("/projects/{project_id}")
-def delete_project(project_id: int, db: Session = Depends(get_db)):
+def delete_project(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Delete a project entirely."""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = db.query(Project).filter(
+        Project.id == project_id, Project.user_id == user.id
+    ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
     

@@ -2,6 +2,7 @@ fastapi
 uvicorn
 python-dotenv
 pydantic-settings
+PyJWT
 chromadb
 arxiv
 requests
