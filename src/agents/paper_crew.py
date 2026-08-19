@@ -849,188 +849,140 @@ Rules:
             [planner, retriever, synthesizer, validator],
             [plan_task, retrieve_task, synthesize_task, validate_task]
         )
+    def _build_embedder_config(self) -> Dict[str, Any]:
+        """Build a CrewAI-compatible embedder config from settings.
+
+        Follows the configured EMBEDDING_PROVIDER instead of hardcoding Ollama,
+        so the crew's short-term memory embeds with the same provider the rest
+        of the app uses. Falls back to the local Ollama embedder rather than
+        raising, since a missing embedder only degrades crew memory.
+        """
+        from src.core.config import get_settings
+        settings = get_settings()
+        provider = settings.EMBEDDING_PROVIDER
+
+        if provider == "openai":
+            return {
+                "provider": "openai",
+                "config": {"model": settings.OPENAI_EMBEDDING_MODEL, "api_key": settings.OPENAI_API_KEY},
+            }
+        if provider == "lmstudio":
+            return {
+                "provider": "openai",
+                "config": {
+                    "model": settings.LMSTUDIO_EMBEDDING_MODEL,
+                    "api_key": settings.LMSTUDIO_API_KEY,
+                    "api_base": settings.LMSTUDIO_BASE_URL,
+                },
+            }
+        # Default / "ollama": local embedder.
+        return {
+            "provider": "ollama",
+            "config": {"model_name": settings.EMBEDDING_MODEL, "url": f"{settings.OLLAMA_BASE_URL}/api/embeddings"},
+        }
+
     def execute(
         self,
         paper_id: str,
         paper_title: str,
         user_query: str,
         chat_history: Optional[str] = None,
-        available_figures: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
-        """Execute with full error handling optimized for Ollama"""
-        
+        available_figures: Optional[List[str]] = None,
+        _allow_recovery: bool = True,
+    ) -> str:
+        """Run the paper research crew and return a Markdown answer.
+
+        Returns the synthesized answer (with figures injected) as a Markdown
+        string. On failure it returns a short Markdown error string so the
+        streaming caller can surface it directly.
+        """
         start_time = time.time()
-        
+
         try:
-            # Check for recovery checkpoint
-            if self.enable_recovery:
-                checkpoint = self.checkpoint_mgr.load_last_checkpoint(
-                    paper_id, "analysis"
-                )
-                if checkpoint and checkpoint.get('status') == 'success':
-                    # Check if query is the same
-                    if checkpoint['data'].get('query') == user_query:
-                        logger.info("↻ Using cached result from checkpoint!")
-                        return checkpoint['data']
-            
-            # Get conversation history (limited for context window)
+            # Conversation history (bounded for the context window).
             history = chat_history or self.memory_mgr.get_history(paper_id, last_n=2)
-            # Create LLMs
+
             small_llm, large_llm = self._create_llms()
             base_rag_tool = PaperRAGTool(paper_id)
-            # Wrap RAG tool with robustness
-            
-            agents, tasks = self._create_improved_flow(paper_id, paper_title, user_query, base_rag_tool, small_llm, large_llm)
-            # Create crew (simplified for local)
+
+            agents, tasks = self._create_improved_flow(
+                paper_id, paper_title, user_query, base_rag_tool, small_llm, large_llm
+            )
+
             crew = Crew(
                 agents=agents,
                 tasks=tasks,
                 process=Process.sequential,
                 verbose=True,
                 memory=False,
-                embedder={
-        "provider": "ollama",
-        "config": {
-            "model_name": "nomic-embed-text:v1.5",  # or "nomic-embed-text"
-             # Default Ollama URL
-        }
-    },
+                embedder=self._build_embedder_config(),
                 cache=True,
                 planning=False,  # Disable manager mode for speed
-                max_rpm=None,  # No rate limit for local
-                full_output=True
+                max_rpm=None,
+                full_output=True,
             )
-            
-            # Execute
+
             logger.info(f"🚀 Starting crew execution for: {user_query[:100]}")
-            result = crew.kickoff()
-            out = tasks[2].output.raw
-            # Extract answer from result
-            # if hasattr(result, 'raw'):
-            #     result = json.loads(result.raw)
-            #     answer = str(result["response"])
-            # else:
-            #     answer = str(result)
-            answer = str(out)
-            
-            # # Validate figures
-            # fig_validator = FigureValidator(paper_id, available_figures)
-            # validated_answer, warnings = fig_validator.validate_figure_refs(answer)
-            answer = inject_figures(
-                answer,
-                paper_id,
-                SessionLocal()
-            )
-            return answer
-            if warnings:
-                for warning in warnings:
-                    logger.warning(f"⚠️ {warning}")
-            
-            # Build response
+            crew.kickoff()
+
+            # The synthesizer task (index 2) holds the answer we surface.
+            answer = str(tasks[2].output.raw)
+            answer = inject_figures(answer, paper_id, SessionLocal())
+
             execution_time = time.time() - start_time
-            response = {
-                'status': 'success',
-                'paper_id': paper_id,
-                'query': user_query,
-                'answer': validated_answer,
-                'figures': fig_validator.extract_figure_ids(validated_answer),
-                'warnings': warnings,
-                'execution_time': execution_time,
-                'model_info': {
-                    'retriever': self.small_model,
-                    'analyst': self.large_model
-                },
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            logger.info(f"✓ Execution completed in {execution_time:.2f}s")
-            
-            # Save checkpoint
-            self.checkpoint_mgr.save_checkpoint(
-                paper_id, "analysis", response, "success"
-            )
-            
-            # Save to memory (truncated)
-            self.memory_mgr.add_conversation(
-                paper_id, user_query, validated_answer[:500],
-                {'figures': response['figures'], 'execution_time': execution_time}
-            )
-            
-            # Log metrics
             self.metrics.log_metric(
-                'execution_time', 
+                "execution_time",
                 execution_time,
                 {
-                    'paper_id': paper_id, 
-                    'query_length': len(user_query),
-                    'answer_length': len(validated_answer)
-                }
+                    "paper_id": paper_id,
+                    "query_length": len(user_query),
+                    "answer_length": len(answer),
+                },
             )
-            
-            return validated_answer
-            
+            self.memory_mgr.add_conversation(
+                paper_id, user_query, answer[:500], {"execution_time": execution_time}
+            )
+            logger.info(f"✓ Execution completed in {execution_time:.2f}s")
+            return answer
+
         except Exception as e:
             logger.error(f"❌ Crew execution failed: {str(e)}", exc_info=True)
-            
-            # Save failure checkpoint
-            error_data = {
-                'status': 'failed',
-                'error': str(e),
-                'error_type': type(e).__name__,
-                'paper_id': paper_id,
-                'query': user_query,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            self.checkpoint_mgr.save_checkpoint(
-                paper_id, "analysis", error_data, "failed"
-            )
-            
-            # Attempt recovery
-            if self.enable_recovery:
-                recovery_result = self._attempt_recovery(
-                    paper_id, paper_title, user_query, base_rag_tool, 
-                    available_figures, e
+
+            # A single bounded retry with a fresh context; never recurse further.
+            if _allow_recovery and self.enable_recovery:
+                recovered = self._attempt_recovery(
+                    paper_id, paper_title, user_query, available_figures
                 )
-                if recovery_result:
-                    return recovery_result
-            
-            return error_data
-    
+                if recovered is not None:
+                    return recovered
+
+            return (
+                f"⚠️ I couldn't complete the analysis for this query "
+                f"({type(e).__name__}). Please try again."
+            )
+
     def _attempt_recovery(
         self,
         paper_id: str,
         paper_title: str,
         user_query: str,
-        base_rag_tool,
-        available_figures: Optional[List[str]],
-        error: Exception
-    ) -> Optional[Dict]:
-        """Attempt recovery strategies"""
-        logger.info("🔄 Attempting recovery...")
-        
+        available_figures: Optional[List[str]] = None,
+    ) -> Optional[str]:
+        """Retry once with a fresh context. Returns an answer, or None on failure."""
+        logger.info("🔄 Attempting recovery (single retry with fresh context)...")
         try:
-            # Strategy 1: Clear memory and retry with fresh context
-            logger.info("Recovery: Clearing short-term memory")
-            time.sleep(2)  # Give Ollama time to recover
-            
-            # Retry with fresh state
-            result = self.execute(
-                paper_id, paper_title, user_query, base_rag_tool,
-                chat_history="",  # Fresh start
-                available_figures=available_figures
+            time.sleep(2)  # Give a local model a moment to recover.
+            return self.execute(
+                paper_id,
+                paper_title,
+                user_query,
+                chat_history="",
+                available_figures=available_figures,
+                _allow_recovery=False,  # Prevent infinite recursion.
             )
-            
-            if result.get('status') == 'success':
-                logger.info("✓ Recovery successful!")
-                result['recovered'] = True
-                result['recovery_strategy'] = 'memory_clear'
-                return result
-                
         except Exception as e:
             logger.error(f"Recovery failed: {str(e)}")
-        
-        return None
+            return None
 
 
 # ============================================================================
@@ -1048,7 +1000,7 @@ def run_paper_crew(
     available_figures: Optional[List[str]] = None,
     enable_recovery: bool = False,
     enable_thinking: bool = False
-) -> Dict[str, Any]:
+) -> str:
     """
     Main entry point for production paper crew (Ollama optimized)
     

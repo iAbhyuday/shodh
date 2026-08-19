@@ -16,9 +16,11 @@ llama-index-embeddings-ollama
 llama-index-vector-stores-chroma
 llama-index-llms-ollama
 llama-index-llms-openai
+llama-index-llms-openai-like
 llama-index-llms-azure-openai
 llama-index-llms-gemini
 llama-index-embeddings-openai
+llama-index-embeddings-openai-like
 llama-index-embeddings-azure-openai
 llama-index-embeddings-gemini
 
