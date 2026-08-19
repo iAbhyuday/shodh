@@ -96,6 +96,27 @@ class Message(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class SessionEvent(Base):
+    """Append-only, typed event in a conversation's log.
+
+    The session log is the single source of truth: model-visible history is
+    derived from it (see src/core/session_log.py). `seq` is monotonic per
+    conversation (starting at 1); (conversation_id, seq) is unique so a
+    concurrent append cannot duplicate a position.
+    """
+    __tablename__ = "session_events"
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "seq", name="uq_session_event_conv_seq"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), index=True, nullable=False)
+    seq = Column(Integer, nullable=False)  # monotonic per conversation, starts at 1
+    type = Column(String, nullable=False, index=True)  # discriminant, e.g. "user_message"
+    data = Column(Text, nullable=False)  # JSON payload for this event type
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class PaperStructure(Base):
     """Stores paper outline."""
     __tablename__ = "outlines"

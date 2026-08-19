@@ -8,9 +8,22 @@ import json
 
 from src.db.sql_db import get_db, Conversation, Message, UserPaper, SessionLocal
 from src.api.schemas import ChatRequest, ProjectChatRequest, ConversationCreate, ConversationResponse
+from src.core import session_log
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _log_event(fn, *args, **kwargs):
+    """Best-effort session-log append. Never breaks the chat flow if it fails.
+
+    Transitional dual-write: events are logged alongside the existing Message
+    rows. Phase 4 makes the log authoritative for model-visible history.
+    """
+    try:
+        fn(*args, **kwargs)
+    except Exception as exc:  # logging must not fail a live chat response
+        logger.warning(f"session_log append failed: {exc}")
 
 
 
@@ -87,6 +100,14 @@ def get_conversation_messages(conversation_id: int, db: Session = Depends(get_db
         for msg in messages
     ]
 
+
+@router.get("/conversations/{conversation_id}/events")
+def get_conversation_events(conversation_id: int, db: Session = Depends(get_db)):
+    """The append-only session-event log for a conversation (provenance/audit)."""
+    events = session_log.get_events(db, conversation_id)
+    return [session_log.event_to_dict(e) for e in events]
+
+
 @router.post("/chat")
 async def chat_with_paper(request: ChatRequest, db: Session = Depends(get_db)):
     """
@@ -148,6 +169,7 @@ async def chat_with_paper(request: ChatRequest, db: Session = Depends(get_db)):
     )
     db.add(user_msg)
     db.commit()
+    _log_event(session_log.append_user_message, db, conversation_id, request.message)
 
     async def chat_generator():
         from src.core.config import get_settings
@@ -277,6 +299,7 @@ A:"""
                 )
                 db_save.add(assistant_msg)
                 db_save.commit()
+                _log_event(session_log.append_assistant_message, db_save, conversation_id, final_response_text, citations, mode)
             except Exception as e:
                 logger.error(f"Failed to save assistant message: {e}")
             finally:
@@ -331,6 +354,7 @@ async def project_chat(request: ProjectChatRequest, db: Session = Depends(get_db
     )
     db.add(user_msg)
     db.commit()
+    _log_event(session_log.append_user_message, db, conversation_id, request.message)
 
     async def project_chat_generator():
         from src.core.config import get_settings
@@ -430,6 +454,7 @@ A:"""
                 )
                 db_save.add(assistant_msg)
                 db_save.commit()
+                _log_event(session_log.append_assistant_message, db_save, conversation_id, final_response_text, citations, mode)
             finally:
                 db_save.close()
 
