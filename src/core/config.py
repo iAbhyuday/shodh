@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     # CORS: comma-separated list of allowed frontend origins.
     CORS_ORIGINS: str = "http://localhost:3000"
     
+    # Relational DB. SQLite by default; set a Postgres URL for a shared/scaled
+    # deployment, e.g. postgresql+psycopg://user:pass@host:5432/shodh
+    DATABASE_URL: str = "sqlite:///./shodh.db"
+
     # Vector DB
     VECTOR_DB_PATH: str = "./chroma_db"
     COLLECTION_NAME: str = "research_papers"
