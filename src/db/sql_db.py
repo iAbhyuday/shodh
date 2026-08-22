@@ -3,10 +3,15 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 
-# SQLite database
-DATABASE_URL = "sqlite:///./shodh.db"
+from src.core.config import get_settings
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# Relational database. Defaults to a local SQLite file; point DATABASE_URL at
+# Postgres for a shared/scaled deployment. `check_same_thread` only applies to
+# SQLite, so it is set conditionally.
+DATABASE_URL = get_settings().DATABASE_URL
+_connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+
+engine = create_engine(DATABASE_URL, connect_args=_connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

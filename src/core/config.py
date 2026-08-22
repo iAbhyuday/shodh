@@ -11,7 +11,14 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen2.5:7b"
+
+    # CORS: comma-separated list of allowed frontend origins.
+    CORS_ORIGINS: str = "http://localhost:3000"
     
+    # Relational DB. SQLite by default; set a Postgres URL for a shared/scaled
+    # deployment, e.g. postgresql+psycopg://user:pass@host:5432/shodh
+    DATABASE_URL: str = "sqlite:///./shodh.db"
+
     # Vector DB
     VECTOR_DB_PATH: str = "./chroma_db"
     COLLECTION_NAME: str = "research_papers"
@@ -22,8 +29,8 @@ class Settings(BaseSettings):
     HF_TOKEN: str | None = None
 
     # Embeddings & Crew Models
-    LLM_PROVIDER: str = "ollama"  # ollama, openai, azure_openai, gemini
-    EMBEDDING_PROVIDER: str = "ollama" # ollama, openai, azure_openai, gemini
+    LLM_PROVIDER: str = "ollama"  # ollama, lmstudio, openai, azure_openai, gemini
+    EMBEDDING_PROVIDER: str = "ollama" # ollama, lmstudio, openai, azure_openai, gemini
     
     # Ollama Defaults
     EMBEDDING_MODEL: str = "nomic-embed-text:v1.5"
@@ -33,6 +40,13 @@ class Settings(BaseSettings):
     # OpenAI
     OPENAI_MODEL: str = "gpt-4o"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+
+    # LM Studio (OpenAI-compatible local server). The API key is ignored by
+    # LM Studio but LiteLLM/OpenAI clients require a non-empty value.
+    LMSTUDIO_BASE_URL: str = "http://localhost:1234/v1"
+    LMSTUDIO_API_KEY: str = "lm-studio"
+    LMSTUDIO_MODEL: str = "qwen2.5-7b-instruct"
+    LMSTUDIO_EMBEDDING_MODEL: str = "text-embedding-nomic-embed-text-v1.5"
 
     # Azure OpenAI
     AZURE_OPENAI_API_KEY: str | None = None

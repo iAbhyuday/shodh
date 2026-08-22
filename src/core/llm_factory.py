@@ -39,6 +39,18 @@ class LLMFactory:
                     model=model_name or settings.OPENAI_MODEL,
                     api_key=settings.OPENAI_API_KEY
                 )
+            elif provider == "lmstudio":
+                # LM Studio exposes an OpenAI-compatible API; OpenAILike avoids
+                # the OpenAI client's built-in model-name validation.
+                from llama_index.llms.openai_like import OpenAILike
+                return OpenAILike(
+                    model=model_name or settings.LMSTUDIO_MODEL,
+                    api_base=settings.LMSTUDIO_BASE_URL,
+                    api_key=settings.LMSTUDIO_API_KEY,
+                    is_chat_model=True,
+                    temperature=0.7,
+                    timeout=120.0,
+                )
             elif provider == "azure_openai":
                 from llama_index.llms.azure_openai import AzureOpenAI
                 return AzureOpenAI(
@@ -80,6 +92,14 @@ class LLMFactory:
                 return OpenAIEmbedding(
                     model=model_name or settings.OPENAI_EMBEDDING_MODEL,
                     api_key=settings.OPENAI_API_KEY
+                )
+            elif provider == "lmstudio":
+                # LM Studio serves embeddings on the same OpenAI-compatible API.
+                from llama_index.embeddings.openai_like import OpenAILikeEmbedding
+                return OpenAILikeEmbedding(
+                    model_name=model_name or settings.LMSTUDIO_EMBEDDING_MODEL,
+                    api_base=settings.LMSTUDIO_BASE_URL,
+                    api_key=settings.LMSTUDIO_API_KEY,
                 )
             elif provider == "azure_openai":
                 from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
@@ -130,6 +150,16 @@ class LLMFactory:
                 api_key=settings.OPENAI_API_KEY,
                 temperature=0.1
             )
+        elif provider == "lmstudio":
+            from crewai import LLM
+            # LiteLLM routes an "openai/" model at a custom base_url to LM Studio's
+            # OpenAI-compatible endpoint.
+            return LLM(
+                model=f"openai/{model_name}",
+                base_url=settings.LMSTUDIO_BASE_URL,
+                api_key=settings.LMSTUDIO_API_KEY,
+                temperature=0.1
+            )
         elif provider == "azure_openai":
             from crewai import LLM
             return LLM(
@@ -145,6 +175,11 @@ class LLMFactory:
                 model=f"gemini/{model_name}",
                 api_key=settings.GEMINI_API_KEY,
                 temperature=0.1
+            )
+        else:
+            raise ValueError(
+                f"Unknown LLM provider for CrewAI: {provider!r}. "
+                "Expected one of: ollama, lmstudio, openai, azure_openai, gemini."
             )
 
 

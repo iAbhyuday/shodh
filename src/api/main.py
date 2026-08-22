@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 
+from src.core.config import get_settings
 from src.db.sql_db import init_db
 from src.api.routes import papers, chat, ideas, projects, settings
 
@@ -12,10 +13,16 @@ init_db()
 
 app = FastAPI()
 
-# CORS middleware
+# CORS middleware. Origins come from config (comma-separated CORS_ORIGINS);
+# a wildcard cannot be combined with credentials, so pin explicit origins.
+_allowed_origins = [
+    origin.strip()
+    for origin in get_settings().CORS_ORIGINS.split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

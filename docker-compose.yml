@@ -1,0 +1,45 @@
+# Local backend runner. Start with:  docker compose up --build
+# The frontend (frontend/) runs separately with `npm run dev`.
+#
+# Models: point the container at a model server running on the host.
+#   - Ollama:    OLLAMA_BASE_URL=http://host.docker.internal:11434
+#   - LM Studio: LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Reach a model server on the host from inside the container.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      # Keep the SQLite file on the mounted data volume by default.
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/shodh.db}
+    extra_hosts:
+      # Lets host.docker.internal resolve on Linux hosts too.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Persist the vector store and SQLite DB across restarts. For a scaled
+      # deployment set DATABASE_URL to Postgres (see the commented service below)
+      # and VECTOR_DB_HOST to a Chroma server instead of these bind mounts.
+      - ./chroma_db:/app/chroma_db
+      - shodh_data:/app/data
+    restart: unless-stopped
+
+  # Uncomment for a Postgres-backed deployment, and set
+  # DATABASE_URL=postgresql+psycopg://shodh:shodh@db:5432/shodh in .env.
+  # db:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_USER: shodh
+  #     POSTGRES_PASSWORD: shodh
+  #     POSTGRES_DB: shodh
+  #   volumes:
+  #     - shodh_pg:/var/lib/postgresql/data
+  #   restart: unless-stopped
+
+volumes:
+  shodh_data:
+  # shodh_pg:

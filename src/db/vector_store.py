@@ -2,14 +2,13 @@ import chromadb
 from chromadb.config import Settings as ChromaSettings
 from src.core.config import get_settings
 
-settings = get_settings()
 
-
-def get_chroma_client(settings):
+def get_chroma_client(settings=None):
     """
     Get ChromaDB client based on configuration.
     Returns HttpClient if HOST is set, otherwise PersistentClient.
     """
+    settings = settings or get_settings()
     if settings.VECTOR_DB_HOST:
         return chromadb.HttpClient(
             host=settings.VECTOR_DB_HOST,
@@ -21,6 +20,7 @@ def get_chroma_client(settings):
 
 class VectorStore:
     def __init__(self):
+        settings = get_settings()
         self.client = get_chroma_client(settings)
         self.collection = self.client.get_or_create_collection(
             name=settings.COLLECTION_NAME)
@@ -56,5 +56,18 @@ class VectorStore:
         """
         return self.collection.get()
 
-# Singleton instance
-vector_store = VectorStore()
+
+_vector_store: "VectorStore | None" = None
+
+
+def get_vector_store() -> "VectorStore":
+    """Lazily construct and cache the process-wide VectorStore.
+
+    Deferring construction avoids opening a Chroma client at import time (which
+    made importing this module fail without a reachable store and captured
+    settings before any hot-reload).
+    """
+    global _vector_store
+    if _vector_store is None:
+        _vector_store = VectorStore()
+    return _vector_store

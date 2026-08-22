@@ -1,0 +1,6 @@
+# Lightweight dev/CI dependencies for lint + smoke tests.
+# The full app stack lives in requirements.txt.
+pytest
+ruff
+pydantic-settings
+python-dotenv

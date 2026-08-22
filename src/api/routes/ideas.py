@@ -14,9 +14,24 @@ import logging
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Initialize Agents
-idea_agent = IdeaGenerationAgent()
-vis_agent = VisualizationAgent()
+# Agents are constructed lazily (not at import) so importing this module does
+# not build an LLM client, and a provider change via /settings is picked up.
+_idea_agent: IdeaGenerationAgent | None = None
+_vis_agent: VisualizationAgent | None = None
+
+
+def get_idea_agent() -> IdeaGenerationAgent:
+    global _idea_agent
+    if _idea_agent is None:
+        _idea_agent = IdeaGenerationAgent()
+    return _idea_agent
+
+
+def get_vis_agent() -> VisualizationAgent:
+    global _vis_agent
+    if _vis_agent is None:
+        _vis_agent = VisualizationAgent()
+    return _vis_agent
 
 @router.post("/generate_ideas")
 def generate_ideas(request: IdeaRequest, db: Session = Depends(get_db)):
@@ -34,7 +49,7 @@ def generate_ideas(request: IdeaRequest, db: Session = Depends(get_db)):
                 "abstract": data['documents'][0],
                 "metrics": {}
             }
-             return {"paper_id": request.paper_id, "ideas": idea_agent.generate_ideas(paper_content)}
+             return {"paper_id": request.paper_id, "ideas": get_idea_agent().generate_ideas(paper_content)}
     except:
         pass
         
@@ -50,7 +65,7 @@ def generate_ideas(request: IdeaRequest, db: Session = Depends(get_db)):
             "abstract": res.summary,
             "metrics": {}
         }
-        return {"paper_id": request.paper_id, "ideas": idea_agent.generate_ideas(paper_content)}
+        return {"paper_id": request.paper_id, "ideas": get_idea_agent().generate_ideas(paper_content)}
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Paper not found or error generating: {e}")
 
@@ -74,7 +89,7 @@ def visualize_paper(request: IdeaRequest):
             
             # Generate from content
             paper = {"title": metadata.get('title'), "abstract": data['documents'][0]}
-            mindmap_data = vis_agent.generate_mindmap(paper)
+            mindmap_data = get_vis_agent().generate_mindmap(paper)
             
             # Cache it
             import json
@@ -91,7 +106,7 @@ def visualize_paper(request: IdeaRequest):
         search = arxiv.Search(id_list=[request.paper_id])
         res = next(client.results(search))
         paper = {"title": res.title, "abstract": res.summary}
-        mindmap_data = vis_agent.generate_mindmap(paper)
+        mindmap_data = get_vis_agent().generate_mindmap(paper)
         return {"paper_id": request.paper_id, "mindmap": mindmap_data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

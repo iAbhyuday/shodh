@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint (critical errors only)
+        run: ruff check --select E9,F63,F7,F82 src tests
+
+      - name: Compile all sources (syntax check)
+        run: python -m compileall -q src
+
+      - name: Run smoke tests
+        run: pytest
