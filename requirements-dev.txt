@@ -4,3 +4,7 @@ pytest
 ruff
 pydantic-settings
 python-dotenv
+PyJWT
+sqlalchemy
+alembic
+fastapi

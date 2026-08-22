@@ -1,9 +1,14 @@
-from sqlalchemy import create_engine, Column, String, Integer, DateTime, Boolean, Text, Table, ForeignKey, func
+from sqlalchemy import create_engine, Column, String, Integer, DateTime, Boolean, Text, Table, ForeignKey, UniqueConstraint, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 
 from src.core.config import get_settings
+
+# Email of the built-in single-user tenant. In single_user auth mode every
+# request resolves to this user, so existing single-user behavior is preserved
+# while every tenant-owned row still carries a user_id for later isolation.
+DEFAULT_USER_EMAIL = "local@shodh.local"
 
 # Relational database. Defaults to a local SQLite file; point DATABASE_URL at
 # Postgres for a shared/scaled deployment. `check_same_thread` only applies to
@@ -15,10 +20,23 @@ engine = create_engine(DATABASE_URL, connect_args=_connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+
+class User(Base):
+    """An account that owns papers, projects, and conversations."""
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    name = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class UserPaper(Base):
     __tablename__ = "user_papers"
 
     id = Column(Integer, primary_key=True, index=True)
+    # Owning tenant. Nullable so existing rows load; new rows always set it.
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     paper_id = Column(String, unique=True, index=True) # Arxiv ID
     title = Column(String)
     summary = Column(Text, nullable=True)  # Original abstract
@@ -54,6 +72,7 @@ class Conversation(Base):
     __tablename__ = "conversations"
     
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     paper_id = Column(String, index=True, nullable=True)  # Links to UserPaper.paper_id
     project_id = Column(Integer, ForeignKey("projects.id"), index=True, nullable=True)
     title = Column(String, nullable=True)  # Auto-generated or user-defined
@@ -106,18 +125,52 @@ project_papers = Table(
 class Project(Base):
     """Represents a research collection or project."""
     __tablename__ = "projects"
-    
+
+    # Project names are unique per user (not globally) under multi-tenancy.
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_project_user_name"),)
+
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
+    name = Column(String, index=True)
     description = Column(String, nullable=True)
     research_dimensions = Column(Text, nullable=True) # Preliminary info to guide research q&a
     created_at = Column(DateTime, default=func.now())
-    
+
     # Relationship to papers via association table
     papers = relationship("UserPaper", secondary=project_papers, backref="projects")
 
+
+def get_or_create_default_user(db) -> "User":
+    """Return the built-in single-user tenant, creating it if needed."""
+    user = db.query(User).filter(User.email == DEFAULT_USER_EMAIL).first()
+    if user is None:
+        user = User(email=DEFAULT_USER_EMAIL, name="Local User")
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user
+
+
+def get_default_user_id() -> int:
+    """Convenience accessor for the default tenant's id."""
+    db = SessionLocal()
+    try:
+        return get_or_create_default_user(db).id
+    finally:
+        db.close()
+
+
 def init_db():
-    Base.metadata.create_all(bind=engine)
+    # Managed deployments apply schema via Alembic and set AUTO_CREATE_TABLES=False;
+    # local/dev keeps the zero-friction create_all path.
+    if get_settings().AUTO_CREATE_TABLES:
+        Base.metadata.create_all(bind=engine)
+    # Ensure the default single-user tenant exists so every row can carry a user_id.
+    db = SessionLocal()
+    try:
+        get_or_create_default_user(db)
+    finally:
+        db.close()
 
 def get_db():
     db = SessionLocal()
