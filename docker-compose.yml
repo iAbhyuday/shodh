@@ -28,6 +28,9 @@ services:
       - shodh_data:/app/data
     restart: unless-stopped
 
+  # For a managed deployment, set AUTO_CREATE_TABLES=false and run
+  # `alembic upgrade head` before starting the app (see migrations/README.md).
+  #
   # Uncomment for a Postgres-backed deployment, and set
   # DATABASE_URL=postgresql+psycopg://shodh:shodh@db:5432/shodh in .env.
   # db:

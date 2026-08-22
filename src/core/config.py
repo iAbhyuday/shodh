@@ -14,10 +14,27 @@ class Settings(BaseSettings):
 
     # CORS: comma-separated list of allowed frontend origins.
     CORS_ORIGINS: str = "http://localhost:3000"
+
+    # Agent engine for use_agent chat:
+    #   crew  -> the CrewAI multi-agent crew (non-streaming) [default]
+    #   loop  -> the streaming turn/step agent loop
+    AGENT_ENGINE: str = "crew"
+
+    # Authentication.
+    #   single_user  -> every request maps to the built-in default tenant (no auth)
+    #   jwt          -> requests must carry a Bearer JWT signed with AUTH_JWT_SECRET
+    AUTH_MODE: str = "single_user"
+    AUTH_JWT_SECRET: str | None = None
+    AUTH_JWT_ALGORITHM: str = "HS256"
+    # JWT claim that holds the user's email/identifier.
+    AUTH_JWT_EMAIL_CLAIM: str = "email"
     
     # Relational DB. SQLite by default; set a Postgres URL for a shared/scaled
     # deployment, e.g. postgresql+psycopg://user:pass@host:5432/shodh
     DATABASE_URL: str = "sqlite:///./shodh.db"
+    # Create tables on startup (convenient for local/dev). Set False for managed
+    # deployments that apply schema via `alembic upgrade head`.
+    AUTO_CREATE_TABLES: bool = True
 
     # Vector DB
     VECTOR_DB_PATH: str = "./chroma_db"

@@ -45,6 +45,7 @@ def generate_ideas(request: IdeaRequest, db: Session = Depends(get_db)):
         data = retriever._get_vector_store().collection.get(ids=[request.paper_id])
         if data['ids']:
              paper_content = {
+                "paper_id": request.paper_id,  # enables full-text grounding
                 "title": data['metadatas'][0].get('title'),
                 "abstract": data['documents'][0],
                 "metrics": {}
@@ -61,6 +62,7 @@ def generate_ideas(request: IdeaRequest, db: Session = Depends(get_db)):
         search = arxiv.Search(id_list=[request.paper_id])
         res = next(client.results(search))
         paper_content = {
+            "paper_id": request.paper_id,  # not ingested: agent falls back to abstract
             "title": res.title,
             "abstract": res.summary,
             "metrics": {}

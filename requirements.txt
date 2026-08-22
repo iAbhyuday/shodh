@@ -2,12 +2,14 @@ fastapi
 uvicorn
 python-dotenv
 pydantic-settings
+PyJWT
 chromadb
 arxiv
 requests
 beautifulsoup4
 huggingface_hub
 sqlalchemy
+alembic
 
 # PDF Ingestion Pipeline
 docling

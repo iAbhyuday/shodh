@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 class IdeaRequest(BaseModel):
     paper_id: str
@@ -59,6 +59,23 @@ class PaperMetrics(BaseModel):
     approach: List[str]
     metrics: List[str]
     main_contribution: str
+
+
+class GroundedIdea(BaseModel):
+    """A research idea grounded in evidence retrieved from the paper."""
+    hypothesis: str = Field(..., description="A specific, testable research hypothesis or direction.")
+    rationale: str = Field("", description="Why this follows from the paper's findings/limitations.")
+    grounded_in: List[str] = Field(default_factory=list, description="Evidence ids used, e.g. ['E2','E5'].")
+    suggested_experiment: str = Field("", description="A concrete first experiment to test it.")
+    difficulty: str = Field("medium", description="Rough effort: 'low' | 'medium' | 'high'.")
+    novelty: str = Field("unknown", description="'unexplored' | 'incremental' | 'similar-to-existing' | 'unknown'.")
+    novelty_note: str = Field("", description="Prior-art note; names/links similar work when found.")
+
+
+class IdeaSet(BaseModel):
+    """Structured-output target: the set of grounded ideas."""
+    ideas: List[GroundedIdea] = Field(default_factory=list)
+
 
 class ProjectCreate(BaseModel):
     name: str
