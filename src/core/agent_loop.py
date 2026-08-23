@@ -119,8 +119,15 @@ def _build_synthesis_prompt(
     )
     return (
         "You are Shodh AI, a precise research assistant. Answer the user's "
-        "question using ONLY the retrieved context. Cite sections where possible "
-        "and use clear Markdown. If the context is insufficient, say so.\n\n"
+        "question using ONLY the retrieved context below. Use clear Markdown. "
+        "If the context is insufficient, say so.\n\n"
+        "CITATION RULES (REQUIRED):\n"
+        "- The context is numbered [1], [2], ... Every factual sentence you write "
+        "MUST end with the marker(s) of the passage(s) it came from, e.g. "
+        "'Attention is computed over all tokens. [1]'\n"
+        "- Use multiple markers when several passages support one claim: '... [1][3]'\n"
+        "- Cite ONLY the numbers that appear in the context. Never invent a number.\n"
+        "- Do not add a bibliography or a Sources section; the markers are the citation.\n\n"
         f"{preamble}"
         f"RETRIEVED CONTEXT:\n{context}\n\n"
         f"{history}\nASSISTANT:"

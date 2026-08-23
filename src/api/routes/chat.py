@@ -13,6 +13,11 @@ from src.core import session_log
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# Marks the trailing JSON line that carries the numbered sources an answer's
+# inline [n] markers refer to. Sent after the answer because the passages are
+# only known once the agent's search runs mid-stream.
+CITATIONS_SENTINEL = "__SHODH_CITATIONS__"
+
 
 def _log_event(fn, *args, **kwargs):
     """Best-effort session-log append. Never breaks the chat flow if it fails.
@@ -135,6 +140,7 @@ async def chat_with_paper(request: ChatRequest, db: Session = Depends(get_db)):
         # the request-scoped session, so lazy relationship loads there are unsafe.
         context_meta["paper_titles"] = [p.title for p in project.papers]
         context_meta["research_dimensions"] = project.research_dimensions
+        context_meta["titles_by_id"] = {p.paper_id: p.title for p in project.papers}
     else:
         if not request.paper_id:
             raise HTTPException(status_code=400, detail="Either paper_id or project_id must be provided.")
@@ -146,6 +152,7 @@ async def chat_with_paper(request: ChatRequest, db: Session = Depends(get_db)):
         paper_ids = [paper.paper_id]
         context_meta["name"] = paper.title
         context_meta["type"] = "paper"
+        context_meta["titles_by_id"] = {paper.paper_id: paper.title}
 
     # Get or create conversation
     conversation_id = request.conversation_id
@@ -231,7 +238,11 @@ async def chat_with_paper(request: ChatRequest, db: Session = Depends(get_db)):
 
                 registry = ToolRegistry()
                 # Project chat searches across every ingested paper in the project.
-                registry.register(PaperSearchTool(paper_ids, top_k=8 if is_project else 5))
+                registry.register(PaperSearchTool(
+                    paper_ids,
+                    top_k=8 if is_project else 5,
+                    titles=context_meta.get("titles_by_id", {}),
+                ))
 
                 preamble = None
                 if is_project:
@@ -256,6 +267,17 @@ async def chat_with_paper(request: ChatRequest, db: Session = Depends(get_db)):
                 async for token in stream_sync_generator(_make_gen):
                     final_response_text += token
                     yield token
+
+                # The model's inline [n] markers refer to the numbered passages the
+                # tool retrieved. Those are only known mid-stream, so they are sent
+                # as a trailing sentinel line the client resolves markers against.
+                resolved = []
+                for _t, _p in tool_events:
+                    if _t == "tool_result":
+                        resolved.extend(_p.get("sources", []))
+                if resolved:
+                    citations = resolved
+                    yield "\n" + CITATIONS_SENTINEL + json.dumps({"citations": resolved})
 
                 # Persist the tool_call/tool_result events to the log.
                 if tool_events:

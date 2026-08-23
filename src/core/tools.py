@@ -97,6 +97,9 @@ def run_tool(
                 "is_error": result.is_error,
                 "content": result.content[:2000],
                 "duration_s": round(time.time() - started, 3),
+                # Structured sources let the UI resolve inline [n] citation
+                # markers, and make the session log a provenance record.
+                "sources": result.meta.get("sources", []),
             },
         )
     return result
@@ -115,9 +118,11 @@ class PaperSearchTool:
         "Input: {\"query\": str}. Returns the most relevant text chunks."
     )
 
-    def __init__(self, paper_ids: List[str], top_k: int = 5) -> None:
+    def __init__(self, paper_ids: List[str], top_k: int = 5, titles: Optional[Dict[str, str]] = None) -> None:
         self.paper_ids = paper_ids
         self.top_k = top_k
+        # paper_id -> display title, so citation chips can name the paper.
+        self.titles = titles or {}
 
     def run(self, args: Dict[str, Any]) -> ToolResult:
         query = (args or {}).get("query", "").strip()
@@ -129,18 +134,33 @@ class PaperSearchTool:
         retriever = PaperRetriever()
         chunks = retriever.query(query, paper_id=self.paper_ids, top_k=self.top_k)
         if not chunks:
-            return ToolResult(self.name, "No relevant passages found.", meta={"count": 0})
+            return ToolResult(self.name, "No relevant passages found.", meta={"count": 0, "sources": []})
 
-        parts = []
-        for chunk in chunks:
+        # Evidence is NUMBERED so the model can cite [n] and the UI can resolve
+        # each marker to the exact passage it came from.
+        parts: List[str] = []
+        sources: List[Dict[str, Any]] = []
+        for i, chunk in enumerate(chunks, start=1):
             meta = chunk.get("metadata", {})
-            source = meta.get("paper_id", "unknown")
-            section = meta.get("section") or meta.get("section_type", "")
-            header = f"[{source}{' · ' + section if section else ''}]"
-            parts.append(f"{header}\n{chunk.get('content', '')}")
+            paper_id = meta.get("paper_id", "unknown")
+            section = meta.get("section") or meta.get("section_type") or ""
+            content = chunk.get("content", "")
+            title = self.titles.get(paper_id) or meta.get("title") or paper_id
+
+            header = f"[{i}] ({title}{' · ' + section if section else ''})"
+            parts.append(f"{header}\n{content}")
+            sources.append({
+                "index": i,
+                "paper_id": paper_id,
+                "title": title,
+                "section": section,
+                "content": content,
+                "page_number": meta.get("page_number"),
+                "score": chunk.get("score", 0),
+            })
 
         return ToolResult(
             self.name,
             "\n\n---\n\n".join(parts),
-            meta={"count": len(chunks), "citations": chunks},
+            meta={"count": len(chunks), "sources": sources},
         )
