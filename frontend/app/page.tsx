@@ -12,6 +12,9 @@ import SettingsModal from './components/SettingsModal';
 
 // API Base URL
 const API_URL = "http://localhost:8000/api";
+// Must match CITATIONS_SENTINEL in src/api/routes/chat.py — marks the trailing
+// JSON line carrying the sources that inline [n] markers resolve against.
+const CITATIONS_SENTINEL = "__SHODH_CITATIONS__";
 
 type Paper = {
   id: string;
@@ -543,17 +546,62 @@ export default function Home() {
         }
 
         if (!isFirstChunk && buffer.length > 0) {
-          const contentChunk = buffer;
-          buffer = '';
-          setChatMessages(prev => {
-            const newArr = [...prev];
-            const lastIndex = newArr.length - 1;
-            if (lastIndex >= 0 && newArr[lastIndex].role === 'assistant') {
-              newArr[lastIndex] = { ...newArr[lastIndex], content: newArr[lastIndex].content + contentChunk };
+          // The backend appends a trailing sentinel line carrying the numbered
+          // sources that the answer's inline [n] markers refer to. Hold the tail
+          // back until we know it isn't the start of that sentinel.
+          const sentinelIdx = buffer.indexOf(CITATIONS_SENTINEL);
+          let contentChunk: string;
+
+          if (sentinelIdx !== -1) {
+            contentChunk = buffer.slice(0, sentinelIdx);
+            const payload = buffer.slice(sentinelIdx + CITATIONS_SENTINEL.length);
+            buffer = '';
+            try {
+              const parsed = JSON.parse(payload);
+              if (parsed.citations) {
+                setChatMessages(prev => {
+                  const newArr = [...prev];
+                  const lastIndex = newArr.length - 1;
+                  if (lastIndex >= 0 && newArr[lastIndex].role === 'assistant') {
+                    newArr[lastIndex] = { ...newArr[lastIndex], citations: parsed.citations };
+                  }
+                  return newArr;
+                });
+              }
+            } catch {
+              // Sentinel arrived split across reads; ignore and let the stream end.
             }
-            return newArr;
-          });
+          } else {
+            // Keep a small tail buffered in case the sentinel is split mid-token.
+            const safeLen = Math.max(0, buffer.length - CITATIONS_SENTINEL.length);
+            contentChunk = buffer.slice(0, safeLen);
+            buffer = buffer.slice(safeLen);
+          }
+
+          if (contentChunk) {
+            setChatMessages(prev => {
+              const newArr = [...prev];
+              const lastIndex = newArr.length - 1;
+              if (lastIndex >= 0 && newArr[lastIndex].role === 'assistant') {
+                newArr[lastIndex] = { ...newArr[lastIndex], content: newArr[lastIndex].content + contentChunk };
+              }
+              return newArr;
+            });
+          }
         }
+      }
+
+      // Flush any tail held back by the sentinel guard.
+      if (buffer && !buffer.includes(CITATIONS_SENTINEL)) {
+        const tail = buffer;
+        setChatMessages(prev => {
+          const newArr = [...prev];
+          const lastIndex = newArr.length - 1;
+          if (lastIndex >= 0 && newArr[lastIndex].role === 'assistant') {
+            newArr[lastIndex] = { ...newArr[lastIndex], content: newArr[lastIndex].content + tail };
+          }
+          return newArr;
+        });
       }
     } catch (e) {
       console.error('Chat error:', e);

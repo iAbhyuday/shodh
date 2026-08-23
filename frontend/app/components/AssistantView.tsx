@@ -1,6 +1,6 @@
 import React from 'react';
 import { Plus, ArrowLeft, MessageSquare, Quote, Loader2, Send } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+import CitedMarkdown, { Citation } from './CitedMarkdown';
 
 type Paper = {
     id: string;
@@ -19,13 +19,7 @@ type Paper = {
 interface Message {
     role: 'user' | 'assistant';
     content: string;
-    citations?: {
-        content: string;
-        section: string;
-        score: number;
-        section_title?: string;
-        page_number?: number;
-    }[];
+    citations?: Citation[];
 }
 
 interface Conversation {
@@ -164,7 +158,7 @@ const AssistantView: React.FC<AssistantViewProps> = ({
                                                     <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                                                 ) : (
                                                     <div className="prose prose-invert prose-p:leading-loose prose-p:mb-4 prose-headings:text-gray-100 prose-headings:font-semibold prose-strong:text-white prose-ul:my-4 prose-li:my-1 max-w-none">
-                                                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                                                        <CitedMarkdown content={msg.content} citations={msg.citations} />
                                                     </div>
                                                 )}
                                             </div>
@@ -176,17 +170,28 @@ const AssistantView: React.FC<AssistantViewProps> = ({
                                                         <Quote className="w-3 h-3" />
                                                         Sources
                                                     </p>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {msg.citations.slice(0, 3).map((cit, i) => (
-                                                            <div key={i} className="flex-1 min-w-[200px] p-2 bg-neutral-800/50 rounded-lg border border-white/5 text-xs hover:bg-neutral-800 transition-colors">
-                                                                <div className="flex justify-between items-center">
-                                                                    <span className="font-bold text-blue-400 text-[10px] uppercase tracking-wider truncate max-w-[150px]">
-                                                                        {cit.section}
-                                                                    </span>
-                                                                    {cit.page_number && (
-                                                                        <span className="bg-white/10 px-1.5 py-0.5 rounded text-[9px] text-gray-400 ml-2 whitespace-nowrap">
-                                                                            P. {cit.page_number}
+                                                    {/* Numbered to match the inline [n] chips in the answer. */}
+                                                    <div className="flex flex-col gap-1.5">
+                                                        {msg.citations.map((cit, i) => (
+                                                            <div key={i} className="flex items-start gap-2 p-2 bg-neutral-800/50 rounded-lg border border-white/5 text-xs hover:bg-neutral-800 transition-colors">
+                                                                <span className="shrink-0 mt-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white/10 text-[9px] font-bold text-gray-300">
+                                                                    {cit.index ?? i + 1}
+                                                                </span>
+                                                                <div className="min-w-0 flex-1">
+                                                                    <div className="flex items-center justify-between gap-2">
+                                                                        <span className="truncate font-semibold text-blue-400 text-[11px]">
+                                                                            {cit.title || cit.paper_id}
                                                                         </span>
+                                                                        {cit.section && (
+                                                                            <span className="shrink-0 bg-white/10 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wide text-gray-400">
+                                                                                {cit.section}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    {cit.content && (
+                                                                        <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-gray-500">
+                                                                            {cit.content}
+                                                                        </p>
                                                                     )}
                                                                 </div>
                                                             </div>
