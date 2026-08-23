@@ -103,7 +103,9 @@ def run_agent_turn(
 # Deterministic policy: search once, then synthesize a streamed answer.
 # --------------------------------------------------------------------------
 
-def _build_synthesis_prompt(messages: List[Dict[str, Any]]) -> str:
+def _build_synthesis_prompt(
+    messages: List[Dict[str, Any]], context_preamble: Optional[str] = None
+) -> str:
     context = "\n\n".join(
         m.get("content", "") for m in messages if m.get("role") == "tool"
     )
@@ -112,12 +114,44 @@ def _build_synthesis_prompt(messages: List[Dict[str, Any]]) -> str:
         for m in messages
         if m.get("role") in ("user", "assistant") and m.get("content")
     )
+    preamble = (
+        f"{context_preamble.strip()}\n\n" if context_preamble else ""
+    )
     return (
         "You are Shodh AI, a precise research assistant. Answer the user's "
         "question using ONLY the retrieved context. Cite sections where possible "
         "and use clear Markdown. If the context is insufficient, say so.\n\n"
+        f"{preamble}"
         f"RETRIEVED CONTEXT:\n{context}\n\n"
         f"{history}\nASSISTANT:"
+    )
+
+
+def build_project_preamble(
+    project_name: str,
+    paper_titles: List[str],
+    research_dimensions: Optional[str] = None,
+) -> str:
+    """Synthesis guidance for a multi-paper (project) conversation.
+
+    Project chat is a different task from single-paper chat: the value is in
+    relating findings ACROSS papers, so the preamble names the corpus and asks
+    for comparison/contrast rather than a single-source answer.
+    """
+    papers = "\n".join(f"- {t}" for t in paper_titles) or "- (none listed)"
+    dimensions = (
+        f"\nRESEARCH DIMENSIONS & GOALS FOR THIS PROJECT:\n{research_dimensions.strip()}\n"
+        if research_dimensions
+        else ""
+    )
+    return (
+        f'You are synthesizing across the research project "{project_name}".\n'
+        f"PAPERS IN THIS PROJECT:\n{papers}\n"
+        f"{dimensions}\n"
+        "SYNTHESIS RULES:\n"
+        "- Relate findings across papers; note agreements, contradictions, and gaps.\n"
+        "- Attribute every claim to the paper it came from.\n"
+        "- Prefer cross-cutting insight over summarizing one paper in isolation."
     )
 
 
@@ -127,11 +161,20 @@ class RetrieveThenAnswerClient:
     Step 1 (no tool result yet): request ``paper_search`` for the user's question.
     Step 2 (tool result present): stream the LLM's answer over the retrieved
     context. ``llm`` is any LlamaIndex LLM exposing ``stream_complete``.
+
+    ``context_preamble`` injects task-specific guidance into the synthesis step —
+    e.g. :func:`build_project_preamble` for multi-paper project synthesis.
     """
 
-    def __init__(self, llm: Any, tool_name: str = "paper_search") -> None:
+    def __init__(
+        self,
+        llm: Any,
+        tool_name: str = "paper_search",
+        context_preamble: Optional[str] = None,
+    ) -> None:
         self.llm = llm
         self.tool_name = tool_name
+        self.context_preamble = context_preamble
 
     def stream_step(
         self, messages: List[Dict[str, Any]], tools: List[Dict[str, str]]
@@ -143,7 +186,7 @@ class RetrieveThenAnswerClient:
             yield StepEnd("tool")
             return
 
-        prompt = _build_synthesis_prompt(messages)
+        prompt = _build_synthesis_prompt(messages, self.context_preamble)
         for response in self.llm.stream_complete(prompt):
             yield TextChunk(getattr(response, "delta", "") or "")
         yield StepEnd("final")

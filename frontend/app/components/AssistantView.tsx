@@ -238,7 +238,11 @@ const AssistantView: React.FC<AssistantViewProps> = ({
                                 >
                                     {useAgentMode ? '🤖 Agent Mode' : '⚡ Fast Mode'}
                                 </button>
-                                <span>{useAgentMode ? 'Multi-step reasoning (slower)' : 'Quick contextual answers'}</span>
+                                <span>
+                                    {useAgentMode
+                                        ? 'Searches the paper, then answers with citations'
+                                        : 'Single-shot answer — quicker, less thorough'}
+                                </span>
                             </div>
 
                             <div className="flex gap-3">
