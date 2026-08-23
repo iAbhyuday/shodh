@@ -61,7 +61,7 @@ const CitationChip: React.FC<{ citations: Citation[] }> = ({ citations }) => {
                                 <span className="truncate text-[11px] font-semibold text-blue-400">
                                     {cit.title || cit.paper_id}
                                 </span>
-                                {cit.section && (
+                                {cit.section && cit.section.toLowerCase() !== 'unknown' && (
                                     <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-gray-400">
                                         {cit.section}
                                     </span>
@@ -147,6 +147,68 @@ export const CitedMarkdown: React.FC<{ content: string; citations?: Citation[] }
         >
             {encoded}
         </ReactMarkdown>
+    );
+};
+
+/**
+ * Collapsed-by-default source list shown under an answer.
+ *
+ * The inline chips are the primary citation affordance; this is the "show your
+ * work" backup, so it stays out of the way until asked for. Rendering it
+ * expanded pushes the answer off-screen and reads as noise.
+ */
+export const SourceList: React.FC<{ citations?: Citation[]; accent?: string }> = ({
+    citations = [],
+    accent = 'text-blue-400',
+}) => {
+    const [open, setOpen] = useState(false);
+    if (citations.length === 0) return null;
+
+    return (
+        <div className="mt-3 w-full border-t border-white/5 pt-2">
+            <button
+                type="button"
+                onClick={() => setOpen(!open)}
+                aria-expanded={open}
+                className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-500 transition-colors hover:text-gray-300"
+            >
+                <span className={`transition-transform ${open ? 'rotate-90' : ''}`}>›</span>
+                {citations.length} source{citations.length === 1 ? '' : 's'}
+            </button>
+
+            {open && (
+                <div className="mt-2 flex flex-col gap-1.5">
+                    {citations.map((cit, i) => (
+                        <div
+                            key={i}
+                            className="flex items-start gap-2 rounded-lg border border-white/5 bg-white/[0.03] p-2 text-xs"
+                        >
+                            <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-white/10 text-[9px] font-bold text-gray-300">
+                                {cit.index ?? i + 1}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between gap-2">
+                                    <span className={`truncate text-[11px] font-semibold ${accent}`}>
+                                        {cit.title || cit.paper_id}
+                                    </span>
+                                    {/* Hide meaningless section labels rather than showing "UNKNOWN". */}
+                                    {cit.section && cit.section.toLowerCase() !== 'unknown' && (
+                                        <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-gray-400">
+                                            {cit.section}
+                                        </span>
+                                    )}
+                                </div>
+                                {cit.content && (
+                                    <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-gray-500">
+                                        {cit.content}
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
     );
 };
 
