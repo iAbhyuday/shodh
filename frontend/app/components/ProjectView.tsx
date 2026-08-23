@@ -1,7 +1,7 @@
 import React from 'react';
 import { ArrowLeft, Plus, Network, Send, Brain } from 'lucide-react';
 import PaperCard from './PaperCard';
-import CitedMarkdown, { Citation } from './CitedMarkdown';
+import CitedMarkdown, { SourceList } from './CitedMarkdown';
 
 type Paper = {
     id: string;
@@ -200,32 +200,9 @@ const ProjectView: React.FC<ProjectViewProps> = ({
                                             <CitedMarkdown content={msg.content} citations={msg.citations} />
                                         </div>
 
-                                        {/* Cross-paper attribution: which paper each claim came from. */}
-                                        {msg.role === 'assistant' && msg.citations && msg.citations.length > 0 && (
-                                            <div className="mt-4 pt-3 border-t border-white/5">
-                                                <p className="text-[10px] font-medium text-gray-500 mb-2 uppercase tracking-wide">
-                                                    Sources across this project
-                                                </p>
-                                                <div className="flex flex-col gap-1.5">
-                                                    {msg.citations.map((cit: Citation, ci: number) => (
-                                                        <div key={ci} className="flex items-start gap-2 p-2 bg-[#161618] rounded-lg border border-white/5">
-                                                            <span className="shrink-0 mt-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white/10 text-[9px] font-bold text-gray-300">
-                                                                {cit.index ?? ci + 1}
-                                                            </span>
-                                                            <div className="min-w-0 flex-1">
-                                                                <span className="block truncate text-[11px] font-semibold text-indigo-400">
-                                                                    {cit.title || cit.paper_id}
-                                                                </span>
-                                                                {cit.content && (
-                                                                    <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-gray-500">
-                                                                        {cit.content}
-                                                                    </p>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
+                                        {/* Cross-paper attribution, collapsed by default. */}
+                                        {msg.role === 'assistant' && (
+                                            <SourceList citations={msg.citations} accent="text-indigo-400" />
                                         )}
                                     </div>
                                 </div>

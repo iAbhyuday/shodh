@@ -221,16 +221,12 @@ async def chat_with_paper(request: ChatRequest, db: Session = Depends(get_db)):
                 )
                 from src.core.async_bridge import stream_sync_generator
 
-                # Citations (for the metadata line) from a multi-paper retrieval.
-                retrieved = await retriever.aquery(query_text=request.message, paper_id=paper_ids, top_k=5)
-                for chunk in retrieved:
-                    citations.append({
-                        "content": chunk['content'],
-                        "section": chunk['metadata'].get('section_type', 'unknown'),
-                        "paper_id": chunk['metadata'].get('paper_id', 'unknown'),
-                        "score": chunk.get('score', 0),
-                    })
-                yield json.dumps({"conversation_id": conversation_id, "citations": citations, "mode": mode}) + "\n"
+                # No citations upfront: the agent's own search produces the
+                # numbered passages the answer cites, and they are sent as the
+                # trailing sentinel once known. Retrieving here too would be a
+                # second embedding round-trip AND would render an untitled
+                # source list before the answer exists.
+                yield json.dumps({"conversation_id": conversation_id, "citations": [], "mode": mode}) + "\n"
 
                 # Model-visible history is DERIVED FROM THE SESSION LOG.
                 messages = session_log.derive_messages(session_log.get_events(db, conversation_id)) \

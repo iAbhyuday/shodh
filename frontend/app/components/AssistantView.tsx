@@ -1,6 +1,6 @@
 import React from 'react';
-import { Plus, ArrowLeft, MessageSquare, Quote, Loader2, Send } from 'lucide-react';
-import CitedMarkdown, { Citation } from './CitedMarkdown';
+import { Plus, ArrowLeft, MessageSquare, Loader2, Send } from 'lucide-react';
+import CitedMarkdown, { Citation, SourceList } from './CitedMarkdown';
 
 type Paper = {
     id: string;
@@ -163,41 +163,10 @@ const AssistantView: React.FC<AssistantViewProps> = ({
                                                 )}
                                             </div>
 
-                                            {/* Citations (Only for Assistant) */}
-                                            {msg.role === 'assistant' && msg.citations && msg.citations.length > 0 && (
-                                                <div className="mt-4 pt-3 border-t border-white/5 w-full">
-                                                    <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-2 uppercase tracking-wide">
-                                                        <Quote className="w-3 h-3" />
-                                                        Sources
-                                                    </p>
-                                                    {/* Numbered to match the inline [n] chips in the answer. */}
-                                                    <div className="flex flex-col gap-1.5">
-                                                        {msg.citations.map((cit, i) => (
-                                                            <div key={i} className="flex items-start gap-2 p-2 bg-neutral-800/50 rounded-lg border border-white/5 text-xs hover:bg-neutral-800 transition-colors">
-                                                                <span className="shrink-0 mt-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white/10 text-[9px] font-bold text-gray-300">
-                                                                    {cit.index ?? i + 1}
-                                                                </span>
-                                                                <div className="min-w-0 flex-1">
-                                                                    <div className="flex items-center justify-between gap-2">
-                                                                        <span className="truncate font-semibold text-blue-400 text-[11px]">
-                                                                            {cit.title || cit.paper_id}
-                                                                        </span>
-                                                                        {cit.section && (
-                                                                            <span className="shrink-0 bg-white/10 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wide text-gray-400">
-                                                                                {cit.section}
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                    {cit.content && (
-                                                                        <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-gray-500">
-                                                                            {cit.content}
-                                                                        </p>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
+                                            {/* Sources: collapsed by default — the inline chips are the
+                                                primary citation; this is the "show your work" backup. */}
+                                            {msg.role === 'assistant' && (
+                                                <SourceList citations={msg.citations} />
                                             )}
                                         </div>
                                     </div>
