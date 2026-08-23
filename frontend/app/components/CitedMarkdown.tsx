@@ -125,7 +125,11 @@ export const CitedMarkdown: React.FC<{ content: string; citations?: Citation[] }
                 return <React.Fragment key={i}>{part}</React.Fragment>;
             });
         }
-        if (Array.isArray(node)) return node.map((n, i) => <React.Fragment key={i}>{renderWithChips(n)}</React.Fragment>);
+        if (Array.isArray(node)) {
+            return (node as React.ReactNode[]).map((n: React.ReactNode, i: number) => (
+                <React.Fragment key={i}>{renderWithChips(n)}</React.Fragment>
+            ));
+        }
         return node;
     };
 
