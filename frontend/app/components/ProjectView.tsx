@@ -1,7 +1,7 @@
 import React from 'react';
 import { ArrowLeft, Plus, Network, Send, Brain } from 'lucide-react';
 import PaperCard from './PaperCard';
-import CitedMarkdown from './CitedMarkdown';
+import CitedMarkdown, { Citation } from './CitedMarkdown';
 
 type Paper = {
     id: string;
@@ -207,7 +207,7 @@ const ProjectView: React.FC<ProjectViewProps> = ({
                                                     Sources across this project
                                                 </p>
                                                 <div className="flex flex-col gap-1.5">
-                                                    {msg.citations.map((cit, ci) => (
+                                                    {msg.citations.map((cit: Citation, ci: number) => (
                                                         <div key={ci} className="flex items-start gap-2 p-2 bg-[#161618] rounded-lg border border-white/5">
                                                             <span className="shrink-0 mt-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white/10 text-[9px] font-bold text-gray-300">
                                                                 {cit.index ?? ci + 1}
