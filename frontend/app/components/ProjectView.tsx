@@ -56,8 +56,6 @@ interface ProjectViewProps {
     onSendChatMessage: () => void;
     chatLoading: boolean;
     onFetchConversations: (paperId?: string, projectId?: number) => void;
-    useAgentMode: boolean;
-    onToggleAgentMode: () => void;
 }
 
 const ProjectView: React.FC<ProjectViewProps> = ({
@@ -82,8 +80,6 @@ const ProjectView: React.FC<ProjectViewProps> = ({
     onSendChatMessage,
     chatLoading,
     onFetchConversations,
-    useAgentMode,
-    onToggleAgentMode,
 }) => {
     return (
         <div className={`mx-auto animate-in fade-in slide-in-from-left-4 duration-500 ${projectView === 'synthesis' ? 'max-w-none h-[calc(100vh-6rem)] flex flex-col' : 'max-w-5xl'}`}>
@@ -219,15 +215,15 @@ const ProjectView: React.FC<ProjectViewProps> = ({
                             )}
                         </div>
                         <div className="p-6 bg-[#0a0a0b] border-t border-white/5 flex gap-4">
-                            <button
-                                onClick={onToggleAgentMode}
-                                className={`p-4 rounded-2xl transition-all border ${useAgentMode
-                                    ? 'bg-purple-600 text-white border-purple-500 shadow-lg shadow-purple-500/20'
-                                    : 'bg-[#161618] text-gray-500 border-white/5 hover:text-white hover:bg-[#1c1c1e]'}`}
-                                title={useAgentMode ? "Agent Mode On" : "Enable Agent Mode"}
+                            {/* Project synthesis always runs the agent loop — searching
+                                across papers is the point, so there is no fast mode here. */}
+                            <div
+                                className="p-4 rounded-2xl border bg-purple-600/20 text-purple-300 border-purple-500/30 flex items-center"
+                                title="Synthesis always uses multi-step agentic search across the project's papers"
+                                aria-label="Agentic synthesis"
                             >
                                 <Brain className="w-5 h-5" />
-                            </button>
+                            </div>
                             <input
                                 type="text"
                                 value={chatInput}

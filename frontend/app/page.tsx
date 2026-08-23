@@ -104,7 +104,9 @@ export default function Home() {
   }[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
-  const [useAgentMode, setUseAgentMode] = useState(false);  // Toggle for Agentic vs Contextual RAG
+  // Agentic by default. Paper chat can opt out to fast single-shot RAG;
+  // project synthesis is always agentic (see sendChatMessage).
+  const [useAgentMode, setUseAgentMode] = useState(true);
 
   // Conversation persistence state
   const [conversations, setConversations] = useState<{
@@ -475,7 +477,8 @@ export default function Home() {
         message: userMessage,
         conversation_id: activeConversationId,
         history: chatMessages.slice(-10), // Keep history lean
-        use_agent: useAgentMode
+        // Project synthesis is always agentic; paper chat honors the fast-mode toggle.
+        use_agent: isProjectSynthesis ? true : useAgentMode
       };
 
       if (isProjectSynthesis && projectContext) {
@@ -484,8 +487,9 @@ export default function Home() {
         payload.paper_id = paperContext.id;
       }
 
-      const endpoint = isProjectSynthesis ? '/project-chat' : '/chat';
-      const response = await fetch(`${API_URL}${endpoint}`, {
+      // One unified agentic endpoint for both paper chat and project synthesis;
+      // the backend picks the mode from paper_id vs project_id.
+      const response = await fetch(`${API_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -1145,8 +1149,6 @@ export default function Home() {
                 setActiveProjectMenu={setActiveProjectMenu}
                 ingestionStatus={ingestionStatus}
                 onAddPaperToProject={addPaperToProject}
-                useAgentMode={useAgentMode}
-                onToggleAgentMode={() => setUseAgentMode(!useAgentMode)}
               />
             )}
           </>

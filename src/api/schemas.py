@@ -22,7 +22,9 @@ class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[int] = None  # If None, creates new conversation
     history: List[Dict[str, Any]] = []  # Optional chat history (for backward compat)
-    use_agent: bool = False  # If True, use Agentic RAG; else use fast Contextual RAG
+    # Agentic by default. Set False for fast single-shot RAG (single-paper chat
+    # only — project synthesis is always agentic).
+    use_agent: bool = True
 
 class ProjectChatRequest(BaseModel):
     project_id: int
